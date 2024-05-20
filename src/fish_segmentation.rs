@@ -1,3 +1,4 @@
+use std::cmp::{max, min};
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
@@ -25,6 +26,13 @@ pub struct FishSegmentation {
 }
 
 impl FishSegmentation {
+    const MIN_SIZE_TEST: usize = 800;
+    const MAX_SIZE_TEST: usize = 1333;
+
+    const SCORE_THRESHOLD: f32 = 0.3;
+    const MASK_THRESHOLD: f32 = 0.5;
+    const NMS_THRESHOLD: f32 = 0.9;
+
     const MODEL_URL: &'static str = "https://huggingface.co/ccrutchf/fishial/resolve/main/fishial.onnx?download=true";
 
     fn get_model_path() -> Result<PathBuf, SegmentationError> {
@@ -139,13 +147,54 @@ impl FishSegmentation {
         }
     }
 
-    fn do_inference(&self, img: &Array<f32, Dim<[usize; 3]>>, model: &Session) {
+    fn resize_img(&self, img: &Array<f32, Dim<[usize; 3]>>) -> Array<f32, Dim<[usize; 3]>> {
+        let height = img.dim().0;
+        let width = img.dim().1;
 
+        let size = FishSegmentation::MIN_SIZE_TEST as f32 * 1.0;
+        let mut scale = size / min(height, width) as f32;
+
+        let mut new_height_fl32: f32 = 0.0;
+        let mut new_width_fl32: f32 = 0.0;
+        if height < width {
+            new_height_fl32 = size;
+            new_width_fl32 = scale * width as f32;
+        }
+        else {
+            new_height_fl32 = scale * height as f32;
+            new_width_fl32 = size;
+        }
+
+        let max_size: usize = max(new_height_fl32 as usize, new_width_fl32 as usize);
+        if  max_size > FishSegmentation::MAX_SIZE_TEST {
+            scale = FishSegmentation::MAX_SIZE_TEST as f32 / max_size as f32;
+            new_height_fl32 *= scale;
+            new_width_fl32 *= scale;
+        }
+
+        new_height_fl32 += 0.5;
+        new_width_fl32 += 0.5;
+        let new_height: usize = new_height_fl32 as usize;
+        let new_width: usize = new_width_fl32 as usize;
+
+        img.clone()
+    }
+
+    fn do_inference(&self, img: &Array<f32, Dim<[usize; 3]>>, model: &Session) -> Result<(), ort::Error> {
+        let outputs = model.run(ort::inputs!["argument_1.1" => img.view()]?)?;
+        let predictions = outputs["output0"].try_extract_tensor::<f32>()?;
+
+        Ok(())
     }
 
     pub fn inference(&self, img: Array<f32, Dim<[usize; 3]>>) -> Result<(), SegmentationError> {
         let model = self.get_model()?;
-        self.do_inference(&img, model);
+        let resized_img = self.resize_img(&img);
+        
+        // match self.do_inference(&resized_img, model) {
+        //     Ok(_) => Ok(()),
+        //     Err(error) => Err(SegmentationError::OrtErr(error))
+        // }
 
         //model.inputs.first()
 
