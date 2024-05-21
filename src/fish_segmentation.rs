@@ -7,8 +7,8 @@ use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
-use ndarray::{Array3, ArrayBase, Dim};
-use ort::{Session, SessionOutputs};
+use ndarray::{s, Array2, Array3, ArrayBase, Dim, IxDynImpl, OwnedRepr};
+use ort::Session;
 use reqwest::blocking::get;
 
 #[derive(Debug)]
@@ -191,35 +191,64 @@ impl FishSegmentation {
         }
     }
 
-    fn do_inference(&self, img: &mut Array3<f32>, model: &Session) ->
-        Result<
-            (ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>,
-             ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>,
-             ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>),
-        ort::Error>
-    {
-        img.swap_axes(2, 1);
-        img.swap_axes(1, 0);
+    fn do_inference(&self, img: &Array3<f32>, model: &Session) ->
+        Result<(ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>, ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>, ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>), ort::Error> {
+        let mut clone = img.clone();
+        clone.swap_axes(2, 1);
+        clone.swap_axes(1, 0);
 
-        let outputs = model.run(ort::inputs!["argument_1.1" => img.view()]?)?;
+        let outputs = model.run(ort::inputs!["argument_1.1" => clone.view()]?)?;
 
         // boxes=tensor18, classes=pred_classes, masks=5232, scores=2339, img_size=onnx::Split_174
         let boxes = outputs["tensor18"].try_extract_tensor::<f32>()?.t().into_owned();
         let masks = outputs["5232"].try_extract_tensor::<f32>()?.t().into_owned();
-        let scores: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<ndarray::IxDynImpl>> = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
+        let scores = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
 
         Ok((boxes, masks, scores))
     }
 
-    pub fn inference(&self, img: Array3<u8>) -> Result<(), SegmentationError> {
-        let model = self.get_model()?;
-        let mut resized_img = self.resize_img(&img)?;
+    fn convert_output_to_mask_and_polygons(
+        &self,
+        boxes: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
+        masks: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
+        scores: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
+        shape: (usize, usize, usize)) -> Array2<u8> {
 
-        match self.do_inference(&mut resized_img, model) {
+        let complete_mask = Array2::<u8>::zeros((shape.0, shape.1));
+        let mask_count = masks.shape().len();
+
+        for ind in 0..mask_count {
+            if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
+                continue;
+            }
+
+            // let x1 = boxes[[0, ind]].round() as u32;
+            // let y1 = boxes[[1, ind]].round() as u32;
+            // let x2 = boxes[[2, ind]].round() as u32;
+            // let y2 = boxes[[3, ind]].round() as u32;
+
+            // let (mask_h, mask_w) = (y2 - y1, x2 - x1);
+        }
+
+        complete_mask
+    }
+
+    pub fn inference(&self, img: Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
+        let model = self.get_model()?;
+        let resized_img = self.resize_img(&img)?;
+
+        let (orig_height, orig_width, _) = img.dim();
+        let (new_height, new_width, _) = resized_img.dim();
+
+        let height_scale = orig_height as f32 / new_height as f32;
+        let width_scale = orig_width as f32 / new_width as f32;
+
+        match self.do_inference(&resized_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
+                let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, img.dim());
 
-                Ok(())
+                Ok(masks)
             }
             Err(error) => Err(SegmentationError::OrtErr(error))
         }
