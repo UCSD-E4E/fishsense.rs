@@ -5,13 +5,16 @@ use std::path::PathBuf;
 
 use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
-use ndarray::{Array, Dim};
-use ort::Session;
+use image::RgbImage;
+use image::imageops::{resize, FilterType};
+use ndarray::{Array3, ArrayBase, Dim};
+use ort::{Session, SessionOutputs};
 use reqwest::blocking::get;
 
 #[derive(Debug)]
 pub enum SegmentationError {
     AppDirsError(app_dirs2::AppDirsError),
+    ArrayShapeError(ndarray::ShapeError),
     CopyErr(u64),
     DownloadError(reqwest::Error),
     GenericError,
@@ -147,15 +150,14 @@ impl FishSegmentation {
         }
     }
 
-    fn resize_img(&self, img: &Array<f32, Dim<[usize; 3]>>) -> Array<f32, Dim<[usize; 3]>> {
-        let height = img.dim().0;
-        let width = img.dim().1;
+    fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<f32>, SegmentationError> {
+        let (height, width, _) = img.dim();
 
         let size = FishSegmentation::MIN_SIZE_TEST as f32 * 1.0;
         let mut scale = size / min(height, width) as f32;
 
-        let mut new_height_fl32: f32 = 0.0;
-        let mut new_width_fl32: f32 = 0.0;
+        let mut new_height_fl32: f32;
+        let mut new_width_fl32: f32;
         if height < width {
             new_height_fl32 = size;
             new_width_fl32 = scale * width as f32;
@@ -177,24 +179,51 @@ impl FishSegmentation {
         let new_height: usize = new_height_fl32 as usize;
         let new_width: usize = new_width_fl32 as usize;
 
-        img.clone()
+        match RgbImage::from_raw(width as u32, height as u32, img.clone().into_raw_vec()) {
+            Some(img) => {
+                let resized_img = resize(&img, new_width as u32, new_height as u32, FilterType::Lanczos3);
+                match Array3::from_shape_vec((new_height, new_width, 3), resized_img.as_raw().clone()) {
+                    Ok(resized_img) => Ok(resized_img.mapv(|x| f32::from(x))),
+                    Err(error) => Err(SegmentationError::ArrayShapeError(error))
+                }
+            },
+            None => Err(SegmentationError::GenericError)
+        }
     }
 
-    fn do_inference(&self, img: &Array<f32, Dim<[usize; 3]>>, model: &Session) -> Result<(), ort::Error> {
+    fn do_inference(&self, img: &mut Array3<f32>, model: &Session) ->
+        Result<
+            (ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>,
+             ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>,
+             ArrayBase<ndarray::OwnedRepr<f32>, Dim<ndarray::IxDynImpl>>),
+        ort::Error>
+    {
+        img.swap_axes(2, 1);
+        img.swap_axes(1, 0);
+
         let outputs = model.run(ort::inputs!["argument_1.1" => img.view()]?)?;
-        let predictions = outputs["output0"].try_extract_tensor::<f32>()?;
 
-        Ok(())
+        // boxes=tensor18, classes=pred_classes, masks=5232, scores=2339, img_size=onnx::Split_174
+        let boxes = outputs["tensor18"].try_extract_tensor::<f32>()?.t().into_owned();
+        let masks = outputs["5232"].try_extract_tensor::<f32>()?.t().into_owned();
+        let scores: ndarray::prelude::ArrayBase<ndarray::OwnedRepr<f32>, ndarray::prelude::Dim<ndarray::IxDynImpl>> = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
+
+        Ok((boxes, masks, scores))
     }
 
-    pub fn inference(&self, img: Array<f32, Dim<[usize; 3]>>) -> Result<(), SegmentationError> {
+    pub fn inference(&self, img: Array3<u8>) -> Result<(), SegmentationError> {
         let model = self.get_model()?;
-        let resized_img = self.resize_img(&img);
-        
-        // match self.do_inference(&resized_img, model) {
-        //     Ok(_) => Ok(()),
-        //     Err(error) => Err(SegmentationError::OrtErr(error))
-        // }
+        let mut resized_img = self.resize_img(&img)?;
+
+        match self.do_inference(&mut resized_img, model) {
+            Ok(result) => {
+                let (boxes, masks, scores) = result;
+
+                Ok(())
+            }
+            Err(error) => Err(SegmentationError::OrtErr(error))
+        }
+
 
         //model.inputs.first()
 
@@ -208,8 +237,6 @@ impl FishSegmentation {
         //let outputs = model.run(ort::inputs!["argument_1.1" => ])
 
         // argument_1.1
-
-        Ok(())
     }
 }
 
@@ -219,8 +246,9 @@ mod tests {
 
     #[test]
     fn inference() {
-        let img = Array::zeros((640, 800, 3));
-
+        let rust_img = image::io::Reader::open("./data/img8.png").unwrap().decode().unwrap().as_mut_rgb8().unwrap().clone();
+        let img = Array3::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize, 3), rust_img.as_raw().clone()).unwrap();
+        
         let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
         let res = seg.inference(img).unwrap();
