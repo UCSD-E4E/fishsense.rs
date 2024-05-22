@@ -8,6 +8,7 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
+use opencv::imgproc::find_contours;
 use ort::Session;
 use reqwest::blocking::get;
 
@@ -214,7 +215,6 @@ impl FishSegmentation {
         let mut output = Array2::<f32>::zeros((h_out, w_out));
         for h in 0..h_out {
             for w in 0..w_out {
-                //let grid_coord = grid.slice(s![0, h, w, ..]);
                 let x = (grid[[0, h, w, 0]] + 1.0) / 2.0 / w_in as f32;
                 let y = (grid[[0, h, w, 1]] + 1.0) / 2.0 / h_in as f32;
                 let x0 = x.floor();
@@ -222,6 +222,7 @@ impl FishSegmentation {
                 let y0 = y.floor();
                 let y1 = y.ceil();
 
+                // See: https://en.wikipedia.org/wiki/Bilinear_interpolation
                 let q00 = input[[y0 as usize, x0 as usize, 0, 0]];
                 let q01 = input[[y1 as usize, x0 as usize, 0, 0]];
                 let q10 = input[[y0 as usize, x1 as usize, 0, 0]];
@@ -275,6 +276,12 @@ impl FishSegmentation {
         }
     }
 
+    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) {
+        // TODO Convert from ndarray to opencv type (Mat)?
+
+        //find_contours(bitmap, contours, mode, method, offset);
+    }
+
     fn convert_output_to_mask_and_polygons(
         &self,
         boxes: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
@@ -298,7 +305,9 @@ impl FishSegmentation {
 
             let mask = masks.slice(s![.., .., .., ind]).insert_axis(Axis(3));
             let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?
-                .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as usize} else {0});
+                .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
+
+            let contours = self.bitmap_to_polygon(&np_mask);
         }
 
         Ok(complete_mask)
