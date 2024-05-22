@@ -1,5 +1,7 @@
 mod fish_segmentation;
 
+pub use fish_segmentation::FishSegmentation;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
