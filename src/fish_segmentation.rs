@@ -35,7 +35,6 @@ impl FishSegmentation {
 
     const SCORE_THRESHOLD: f32 = 0.3;
     const MASK_THRESHOLD: f32 = 0.5;
-    const NMS_THRESHOLD: f32 = 0.9;
 
     const MODEL_URL: &'static str = "https://huggingface.co/ccrutchf/fishial/resolve/main/fishial.onnx?download=true";
 
@@ -323,8 +322,6 @@ impl FishSegmentation {
         let height_scale = orig_height as f32 / new_height as f32;
         let width_scale = orig_width as f32 / new_width as f32;
 
-        // println!("{}, {}", height_scale, width_scale);
-
         match self.do_inference(&resized_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
@@ -334,20 +331,6 @@ impl FishSegmentation {
             }
             Err(error) => Err(SegmentationError::OrtErr(error))
         }
-
-
-        //model.inputs.first()
-
-        // ort_inputs = {
-        //     self.ort_session.get_inputs()[0]
-        //     .name: resized_img.astype("float32")
-        //     .transpose(2, 0, 1)
-        // }
-        // ort_outs = self.ort_session.run(None, ort_inputs)
-
-        //let outputs = model.run(ort::inputs!["argument_1.1" => ])
-
-        // argument_1.1
     }
 }
 
