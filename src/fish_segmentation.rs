@@ -7,7 +7,7 @@ use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
-use ndarray::{array, s, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, NewAxis, OwnedRepr, ShapeError};
+use ndarray::{array, s, stack, Array, Array2, Array3, Array4, ArrayBase, Axis, Dim, IxDynImpl, NewAxis, OwnedRepr, ShapeError};
 use ort::Session;
 use reqwest::blocking::get;
 use reqwest::Error;
@@ -208,7 +208,7 @@ impl FishSegmentation {
         Ok((boxes, masks, scores))
     }
 
-    fn do_paste_mask(&self, masks: ArrayBase<ndarray::ViewRepr<&f32>, Dim<[usize; 3]>>, img_h: u32, img_w: u32) -> Result<(), SegmentationError> {
+    fn do_paste_mask(&self, masks: &ArrayBase<ndarray::ViewRepr<&f32>, Dim<[usize; 3]>>, img_h: u32, img_w: u32) -> Result<(), SegmentationError> {
         let x0_int: f32 = 0.0;
         let y0_int: f32 = 0.0;
         let x1_int = img_w as f32;
@@ -219,8 +219,6 @@ impl FishSegmentation {
         let x1 = array![[img_w as f32]];
         let y1 = array![[img_h as f32]];
 
-        let N = masks.shape()[0];
-
         let mut img_y = (Array::range(y0_int, y1_int - 2.0, 1.0) + 0.5).insert_axis(Axis(0));
         let mut img_x = (Array::range(x0_int, x1_int - 1.0, 1.0) + 0.5).insert_axis(Axis(0));
         img_y = (img_y - &y0) / (&y1 - &y0) * 2.0 - 1.0;
@@ -230,26 +228,22 @@ impl FishSegmentation {
         let img_x_len = img_x.len();
 
         // (1, img_y_len, img_x_len), 
-        let gy_vec = img_y.into_raw_vec().iter().map(|&f| f.clone()).cycle().take(img_y_len * img_x_len).collect::<Vec<f32>>();
+        let gy_vec = img_y.into_raw_vec().iter().flat_map(|&f| std::iter::repeat(f.clone()).take(img_x_len)).collect::<Vec<f32>>();
         match Array3::from_shape_vec((1, img_y_len, img_x_len), gy_vec) {
             Ok(gy) => {
-                
-
-                println!("{}, {}, {}", gy.shape()[0], gy.shape()[1], gy.shape()[2]);
-
-                Ok(())
+                let gx_vec = img_x.into_raw_vec().iter().map(|&f| f.clone()).cycle().take(img_x_len * img_y_len).collect::<Vec<f32>>();
+                match Array3::from_shape_vec((1, img_y_len, img_x_len), gx_vec) {
+                    Ok(gx) => {
+                        let grid = stack![Axis(3), gx, gy];
+                        
+                        
+                        Ok(())
+                    },
+                    Err(error) => Err(SegmentationError::ArrayShapeError(error))
+                }
             },
             Err(error) => Err(SegmentationError::ArrayShapeError(error))
         }
-
-        // let gy = img_y.insert_axis(Axis(2));
-        // let gx = img_x.insert_axis(Axis(1));
-        
-        // println!("{}", gy.len());
-        // println!("{}, {}, {}", gy.shape()[0], gy.shape()[1], gy.shape()[2]);
-        // println!("{}, {}, {}", gx.shape()[0], gx.shape()[1], gx.shape()[2]);
-
-        // Ok(())
     }
 
     fn convert_output_to_mask_and_polygons(
@@ -274,7 +268,7 @@ impl FishSegmentation {
             let (mask_h, mask_w) = (y2 - y1, x2 - x1);
 
             let mask = masks.slice(s![ind, .., .., ..]);
-            let np_mask = self.do_paste_mask(mask, mask_h, mask_w)?;
+            let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?;
         }
 
         Ok(complete_mask)
