@@ -7,9 +7,10 @@ use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
-use ndarray::{s, Array2, Array3, ArrayBase, Dim, IxDynImpl, OwnedRepr};
+use ndarray::{array, s, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, NewAxis, OwnedRepr, ShapeError};
 use ort::Session;
 use reqwest::blocking::get;
+use reqwest::Error;
 
 #[derive(Debug)]
 pub enum SegmentationError {
@@ -207,30 +208,76 @@ impl FishSegmentation {
         Ok((boxes, masks, scores))
     }
 
+    fn do_paste_mask(&self, masks: ArrayBase<ndarray::ViewRepr<&f32>, Dim<[usize; 3]>>, img_h: u32, img_w: u32) -> Result<(), SegmentationError> {
+        let x0_int: f32 = 0.0;
+        let y0_int: f32 = 0.0;
+        let x1_int = img_w as f32;
+        let y1_int = img_h as f32;
+
+        let x0 = array![[0.0]];
+        let y0 = array![[0.0]];
+        let x1 = array![[img_w as f32]];
+        let y1 = array![[img_h as f32]];
+
+        let N = masks.shape()[0];
+
+        let mut img_y = (Array::range(y0_int, y1_int - 2.0, 1.0) + 0.5).insert_axis(Axis(0));
+        let mut img_x = (Array::range(x0_int, x1_int - 1.0, 1.0) + 0.5).insert_axis(Axis(0));
+        img_y = (img_y - &y0) / (&y1 - &y0) * 2.0 - 1.0;
+        img_x = (img_x - &x0) / (&x1 - &x0) * 2.0 - 1.0;
+
+        let img_y_len = img_y.len();
+        let img_x_len = img_x.len();
+
+        // (1, img_y_len, img_x_len), 
+        let gy_vec = img_y.into_raw_vec().iter().map(|&f| f.clone()).cycle().take(img_y_len * img_x_len).collect::<Vec<f32>>();
+        match Array3::from_shape_vec((1, img_y_len, img_x_len), gy_vec) {
+            Ok(gy) => {
+                
+
+                println!("{}, {}, {}", gy.shape()[0], gy.shape()[1], gy.shape()[2]);
+
+                Ok(())
+            },
+            Err(error) => Err(SegmentationError::ArrayShapeError(error))
+        }
+
+        // let gy = img_y.insert_axis(Axis(2));
+        // let gx = img_x.insert_axis(Axis(1));
+        
+        // println!("{}", gy.len());
+        // println!("{}, {}, {}", gy.shape()[0], gy.shape()[1], gy.shape()[2]);
+        // println!("{}, {}, {}", gx.shape()[0], gx.shape()[1], gx.shape()[2]);
+
+        // Ok(())
+    }
+
     fn convert_output_to_mask_and_polygons(
         &self,
         boxes: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
         masks: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
         scores: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
-        shape: (usize, usize, usize)) -> Array2<u8> {
+        shape: (usize, usize, usize)) -> Result<Array2<u8>, SegmentationError> {
 
         let complete_mask = Array2::<u8>::zeros((shape.0, shape.1));
-        let mask_count = masks.shape().len();
+        let mask_count = scores.len();
 
         for ind in 0..mask_count {
             if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
                 continue;
             }
 
-            // let x1 = boxes[[0, ind]].round() as u32;
-            // let y1 = boxes[[1, ind]].round() as u32;
-            // let x2 = boxes[[2, ind]].round() as u32;
-            // let y2 = boxes[[3, ind]].round() as u32;
+            let x1 = boxes[[0, ind]].round() as u32;
+            let y1 = boxes[[1, ind]].round() as u32;
+            let x2 = boxes[[2, ind]].round() as u32;
+            let y2 = boxes[[3, ind]].round() as u32;
+            let (mask_h, mask_w) = (y2 - y1, x2 - x1);
 
-            // let (mask_h, mask_w) = (y2 - y1, x2 - x1);
+            let mask = masks.slice(s![ind, .., .., ..]);
+            let np_mask = self.do_paste_mask(mask, mask_h, mask_w)?;
         }
 
-        complete_mask
+        Ok(complete_mask)
     }
 
     pub fn inference(&self, img: Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
@@ -246,7 +293,7 @@ impl FishSegmentation {
         match self.do_inference(&resized_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
-                let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, img.dim());
+                let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, img.dim())?;
 
                 Ok(masks)
             }
