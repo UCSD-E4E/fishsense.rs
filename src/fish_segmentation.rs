@@ -1,5 +1,4 @@
 use std::cmp::{max, min};
-use std::ffi::c_void;
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
@@ -9,7 +8,6 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
-use opencv::core::{Mat, CV_8UC2};
 use ort::Session;
 use reqwest::blocking::get;
 
@@ -21,7 +19,6 @@ pub enum SegmentationError {
     DownloadError(reqwest::Error),
     GenericError,
     IOError(std::io::Error),
-    OpenCVError(opencv::Error),
     OrtErr(ort::Error),
 }
 
@@ -37,6 +34,7 @@ impl FishSegmentation {
 
     const SCORE_THRESHOLD: f32 = 0.3;
     const MASK_THRESHOLD: f32 = 0.5;
+    const NMS_THRESHOLD: f32 = 0.9;
 
     const MODEL_URL: &'static str = "https://huggingface.co/ccrutchf/fishial/resolve/main/fishial.onnx?download=true";
 
@@ -216,6 +214,7 @@ impl FishSegmentation {
         let mut output = Array2::<f32>::zeros((h_out, w_out));
         for h in 0..h_out {
             for w in 0..w_out {
+                //let grid_coord = grid.slice(s![0, h, w, ..]);
                 let x = (grid[[0, h, w, 0]] + 1.0) / 2.0 / w_in as f32;
                 let y = (grid[[0, h, w, 1]] + 1.0) / 2.0 / h_in as f32;
                 let x0 = x.floor();
@@ -223,7 +222,6 @@ impl FishSegmentation {
                 let y0 = y.floor();
                 let y1 = y.ceil();
 
-                // See: https://en.wikipedia.org/wiki/Bilinear_interpolation
                 let q00 = input[[y0 as usize, x0 as usize, 0, 0]];
                 let q01 = input[[y1 as usize, x0 as usize, 0, 0]];
                 let q10 = input[[y0 as usize, x1 as usize, 0, 0]];
@@ -277,39 +275,6 @@ impl FishSegmentation {
         }
     }
 
-    unsafe fn as_mat_u8c2_mut(&self, array: &Array2<u8>) -> Result<Mat, SegmentationError> {
-        // Array must be contiguous and in the standard row-major layout, or the
-        // conversion to a `Mat` will produce a corrupted result
-        assert!(array.is_standard_layout());
-
-        let (height, width) = array.dim();
-        let array_clone = array.clone();
-        let result = Mat::new_rows_cols_with_data_unsafe_def(
-            height as i32,
-            width as i32,
-            CV_8UC2,
-            array_clone.into_raw_vec().as_ptr() as *mut c_void,
-        );
-
-        match result {
-            Ok(mat) => Ok(mat),
-            Err(error) => Err(SegmentationError::OpenCVError(error))
-        }
-    }
-
-    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<(), SegmentationError> {
-        // let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
-
-        Ok(())
-
-        // unsafe {
-        //     let bitmap_mat = Mat2s::from_raw(bitmap.into_raw_vec());
-        // }
-        // TODO Convert from ndarray to opencv type (Mat)?
-
-        //find_contours(bitmap_mat, contours, mode, method, offset);
-    }
-
     fn convert_output_to_mask_and_polygons(
         &self,
         boxes: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
@@ -333,9 +298,7 @@ impl FishSegmentation {
 
             let mask = masks.slice(s![.., .., .., ind]).insert_axis(Axis(3));
             let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?
-                .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
-
-            let contours = self.bitmap_to_polygon(&np_mask);
+                .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as usize} else {0});
         }
 
         Ok(complete_mask)
@@ -351,6 +314,8 @@ impl FishSegmentation {
         let height_scale = orig_height as f32 / new_height as f32;
         let width_scale = orig_width as f32 / new_width as f32;
 
+        // println!("{}, {}", height_scale, width_scale);
+
         match self.do_inference(&resized_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
@@ -360,6 +325,20 @@ impl FishSegmentation {
             }
             Err(error) => Err(SegmentationError::OrtErr(error))
         }
+
+
+        //model.inputs.first()
+
+        // ort_inputs = {
+        //     self.ort_session.get_inputs()[0]
+        //     .name: resized_img.astype("float32")
+        //     .transpose(2, 0, 1)
+        // }
+        // ort_outs = self.ort_session.run(None, ort_inputs)
+
+        //let outputs = model.run(ort::inputs!["argument_1.1" => ])
+
+        // argument_1.1
     }
 }
 
