@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::ffi::c_void;
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
@@ -8,7 +9,7 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
-use opencv::imgproc::find_contours;
+use opencv::core::{Mat, CV_8UC2};
 use ort::Session;
 use reqwest::blocking::get;
 
@@ -20,6 +21,7 @@ pub enum SegmentationError {
     DownloadError(reqwest::Error),
     GenericError,
     IOError(std::io::Error),
+    OpenCVError(opencv::Error),
     OrtErr(ort::Error),
 }
 
@@ -275,10 +277,37 @@ impl FishSegmentation {
         }
     }
 
-    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) {
+    unsafe fn as_mat_u8c2_mut(&self, array: &Array2<u8>) -> Result<Mat, SegmentationError> {
+        // Array must be contiguous and in the standard row-major layout, or the
+        // conversion to a `Mat` will produce a corrupted result
+        assert!(array.is_standard_layout());
+
+        let (height, width) = array.dim();
+        let array_clone = array.clone();
+        let result = Mat::new_rows_cols_with_data_unsafe_def(
+            height as i32,
+            width as i32,
+            CV_8UC2,
+            array_clone.into_raw_vec().as_ptr() as *mut c_void,
+        );
+
+        match result {
+            Ok(mat) => Ok(mat),
+            Err(error) => Err(SegmentationError::OpenCVError(error))
+        }
+    }
+
+    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<(), SegmentationError> {
+        // let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
+
+        Ok(())
+
+        // unsafe {
+        //     let bitmap_mat = Mat2s::from_raw(bitmap.into_raw_vec());
+        // }
         // TODO Convert from ndarray to opencv type (Mat)?
 
-        //find_contours(bitmap, contours, mode, method, offset);
+        //find_contours(bitmap_mat, contours, mode, method, offset);
     }
 
     fn convert_output_to_mask_and_polygons(
