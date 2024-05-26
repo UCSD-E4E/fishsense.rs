@@ -13,6 +13,3 @@ ndarray = "0.15.6"
 opencv = "0.91.3"
 ort = "2.0.0-rc.2"
 reqwest = {version = "0.12.4", features = ["blocking"]}
-
-[dev-dependencies]
-#npyz = "0.8.3"

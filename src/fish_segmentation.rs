@@ -9,7 +9,9 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
-use opencv::core::{Mat, CV_8UC2};
+use opencv::core::{Mat, Point2i, CV_8UC2};
+use opencv::imgproc::{find_contours, find_contours_with_hierarchy, CHAIN_APPROX_NONE, RETR_CCOMP};
+use opencv::types::VectorOfVectorOfPoint;
 use ort::Session;
 use reqwest::blocking::get;
 
@@ -298,9 +300,16 @@ impl FishSegmentation {
     }
 
     fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<(), SegmentationError> {
-        // let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
+        let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
 
-        Ok(())
+        let mut contours_cv = VectorOfVectorOfPoint::new();
+        let mut hierarchy_cv = VectorOfVectorOfPoint::new();
+        match find_contours_with_hierarchy(&bitmap_cv, &mut contours_cv, &mut hierarchy_cv, RETR_CCOMP, CHAIN_APPROX_NONE, Point2i::new(0, 0)) {
+            Ok(_) => {
+                Ok(())
+            },
+            Err(error) => Err(SegmentationError::OpenCVError(error))
+        }
 
         // unsafe {
         //     let bitmap_mat = Mat2s::from_raw(bitmap.into_raw_vec());
@@ -341,7 +350,7 @@ impl FishSegmentation {
         Ok(complete_mask)
     }
 
-    pub fn inference(&self, img: Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
+    pub fn inference(&self, img: &Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
         let model = self.get_model()?;
         let resized_img = self.resize_img(&img)?;
 
@@ -374,6 +383,6 @@ mod tests {
         
         let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
-        let res = seg.inference(img).unwrap();
+        let res = seg.inference(&img).unwrap();
     }
 }
