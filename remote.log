@@ -1,0 +1,1 @@
+75ece4bf-6dfd-4292-9272-1bcbe5bc3969 dsm_version=7 encryption=none externaltype=synology hostname=e4e-nas.ucsd.edu ignore_ssl=True name=synology path=/fishsense/git-annex/fishsense.rs port=6021 protocol=https type=external timestamp=1716757355.674095686s
