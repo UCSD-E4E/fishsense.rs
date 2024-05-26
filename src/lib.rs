@@ -1,4 +1,5 @@
 mod fish_segmentation;
+mod fish_head_tail_detector;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
