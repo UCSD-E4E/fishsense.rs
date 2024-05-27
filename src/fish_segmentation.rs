@@ -9,9 +9,9 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
-use opencv::core::{Mat, Point2i, CV_8UC2};
-use opencv::imgproc::{find_contours, find_contours_with_hierarchy, CHAIN_APPROX_NONE, RETR_CCOMP};
-use opencv::types::VectorOfVectorOfPoint;
+use opencv::core::{Mat, Point2i, VectorToVec, CV_8UC1};
+use opencv::imgproc::{find_contours_with_hierarchy, CHAIN_APPROX_NONE, RETR_CCOMP};
+use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
 use ort::Session;
 use reqwest::blocking::get;
 
@@ -21,6 +21,7 @@ pub enum SegmentationError {
     ArrayShapeError(ndarray::ShapeError),
     CopyErr(u64),
     DownloadError(reqwest::Error),
+    FishNotFound,
     GenericError,
     IOError(std::io::Error),
     OpenCVError(opencv::Error),
@@ -289,7 +290,7 @@ impl FishSegmentation {
         let result = Mat::new_rows_cols_with_data_unsafe_def(
             height as i32,
             width as i32,
-            CV_8UC2,
+            CV_8UC1,
             array_clone.into_raw_vec().as_ptr() as *mut c_void,
         );
 
@@ -299,24 +300,40 @@ impl FishSegmentation {
         }
     }
 
-    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<(), SegmentationError> {
+    fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<VectorOfVectorOfPoint, SegmentationError> {
         let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
 
         let mut contours_cv = VectorOfVectorOfPoint::new();
-        let mut hierarchy_cv = VectorOfVectorOfPoint::new();
+        let mut hierarchy_cv = VectorOfVec4i::new();
+        // cv2.RETR_CCOMP: retrieves all of the contours and organizes them
+        //   into a two-level hierarchy. At the top level, there are external
+        //   boundaries of the components. At the second level, there are
+        //   boundaries of the holes. If there is another contour inside a hole
+        //   of a connected component, it is still put at the top level.
+        // cv2.CHAIN_APPROX_NONE: stores absolutely all the contour points.
         match find_contours_with_hierarchy(&bitmap_cv, &mut contours_cv, &mut hierarchy_cv, RETR_CCOMP, CHAIN_APPROX_NONE, Point2i::new(0, 0)) {
             Ok(_) => {
-                Ok(())
+                if hierarchy_cv.is_empty() {
+                    Err(SegmentationError::FishNotFound)
+                }
+                else {
+                    Ok(contours_cv)
+                }
             },
             Err(error) => Err(SegmentationError::OpenCVError(error))
         }
+    }
 
-        // unsafe {
-        //     let bitmap_mat = Mat2s::from_raw(bitmap.into_raw_vec());
-        // }
-        // TODO Convert from ndarray to opencv type (Mat)?
+    fn rescale_polygon_to_src_size(&self, poly: VectorOfPoint, start_x: u32, start_y: u32, width_scale: f32, height_scale: f32) -> Array2<i32> {
+        let arr: Array2<i32> = poly
+            .iter()
+            .map(|point| [
+                ((start_x as f32 + point.x as f32) * width_scale) as i32,
+                ((start_y as f32 + point.y as f32) * height_scale) as i32])
+            .collect::<Vec<_>>()
+            .into();
 
-        //find_contours(bitmap_mat, contours, mode, method, offset);
+        arr
     }
 
     fn convert_output_to_mask_and_polygons(
@@ -324,6 +341,7 @@ impl FishSegmentation {
         boxes: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
         masks: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
         scores: &ArrayBase<OwnedRepr<f32>, Dim<IxDynImpl>>,
+        width_scale: f32, height_scale: f32,
         shape: (usize, usize, usize)) -> Result<Array2<u8>, SegmentationError> {
 
         let complete_mask = Array2::<u8>::zeros((shape.0, shape.1));
@@ -341,10 +359,35 @@ impl FishSegmentation {
             let (mask_h, mask_w) = (y2 - y1, x2 - x1);
 
             let mask = masks.slice(s![.., .., .., ind]).insert_axis(Axis(3));
+            // Threshold the mask converting to uint8 casuse opencv diesn't allow other type!
             let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?
                 .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
 
-            let contours = self.bitmap_to_polygon(&np_mask);
+            // Find contours in the binary mask
+            let contours = self.bitmap_to_polygon(&np_mask)?;
+
+            // Ignore empty contpurs
+            if contours.is_empty() {
+                continue
+            }
+
+            // Ignore small artifacts
+            match contours.get(0) {
+                Ok(poly) => {
+                    if poly.len() < 10 {
+                        continue
+                    }
+
+                    // Convert local polygon to src image
+                    let polygon_full = self.rescale_polygon_to_src_size(
+                        poly,
+                        x1, y1,
+                        width_scale, height_scale);
+
+                    Ok(())
+                },
+                Err(error) => Err(SegmentationError::OpenCVError(error))
+            }?;
         }
 
         Ok(complete_mask)
@@ -363,7 +406,7 @@ impl FishSegmentation {
         match self.do_inference(&resized_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
-                let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, img.dim())?;
+                let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, width_scale, height_scale, img.dim())?;
 
                 Ok(masks)
             }
