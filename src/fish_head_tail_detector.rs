@@ -1,10 +1,10 @@
-use std::{array::from_fn, cmp::Ordering};
+use std::cmp::Ordering;
 
-use faer::{linalg::zip::MatShape, sparse::utils::sort_indices, Mat};
-use ndarray::{arr1, arr2, array, concatenate, s, stack, Array1, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
+use faer::Mat;
+use ndarray::{array, s, stack, Array1, Array2, ArrayBase, Axis, Dim, OwnedRepr};
 // use ndarray_linalg::Eig;
-use ndarray_stats::{CorrelationExt, QuantileExt};
-use num::{complex::ComplexFloat, Complex};
+use ndarray_stats::CorrelationExt;
+use num::Complex;
 
 pub struct FishHeadTailDetector {
 
@@ -139,9 +139,6 @@ impl FishHeadTailDetector {
         }
 
         let coords: ArrayBase<OwnedRepr<usize>, Dim<[usize; 2]>> = stack![Axis(0), new_x, new_y];
-
-        let arg_min = *new_x.min().unwrap() as usize;
-        let arg_max = *new_x.max().unwrap() as usize;
 
         let arg_min = new_x.iter().zip(0..).min().unwrap().1;
         let arg_max = new_x.iter().zip(0..).max().unwrap().1;
