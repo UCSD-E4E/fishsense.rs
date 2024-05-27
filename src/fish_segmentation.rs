@@ -1,5 +1,6 @@
+use crate::cv_conversion;
+
 use std::cmp::{max, min};
-use std::ffi::c_void;
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
@@ -9,11 +10,23 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
+use ndarray_npy::NpzWriter;
 use opencv::core::{Mat, MatTraitConstManual, Point2i, CV_8UC1};
 use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
 use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
 use ort::Session;
 use reqwest::blocking::get;
+
+use self::cv_conversion::as_mat_u8c1_mut;
+
+
+fn write(arr: Array3<f32>) {
+    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
+    npz.add_array("arr", &arr).unwrap();
+    npz.finish().unwrap();
+}
+
+
 
 #[derive(Debug)]
 pub enum SegmentationError {
@@ -280,44 +293,27 @@ impl FishSegmentation {
         }
     }
 
-    unsafe fn as_mat_u8c2_mut(&self, array: &Array2<u8>) -> Result<Mat, SegmentationError> {
-        // Array must be contiguous and in the standard row-major layout, or the
-        // conversion to a `Mat` will produce a corrupted result
-        assert!(array.is_standard_layout());
-
-        let (height, width) = array.dim();
-        let array_clone = array.clone();
-        let result = Mat::new_rows_cols_with_data_unsafe_def(
-            height as i32,
-            width as i32,
-            CV_8UC1,
-            array_clone.into_raw_vec().as_ptr() as *mut c_void,
-        );
-
-        match result {
-            Ok(mat) => Ok(mat),
-            Err(error) => Err(SegmentationError::OpenCVError(error))
-        }
-    }
-
     fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<VectorOfVectorOfPoint, SegmentationError> {
-        let bitmap_cv = unsafe { self.as_mat_u8c2_mut(bitmap)? };
-
-        let mut contours_cv = VectorOfVectorOfPoint::new();
-        let mut hierarchy_cv = VectorOfVec4i::new();
-        // cv2.RETR_CCOMP: retrieves all of the contours and organizes them
-        //   into a two-level hierarchy. At the top level, there are external
-        //   boundaries of the components. At the second level, there are
-        //   boundaries of the holes. If there is another contour inside a hole
-        //   of a connected component, it is still put at the top level.
-        // cv2.CHAIN_APPROX_NONE: stores absolutely all the contour points.
-        match find_contours_with_hierarchy(&bitmap_cv, &mut contours_cv, &mut hierarchy_cv, RETR_CCOMP, CHAIN_APPROX_NONE, Point2i::new(0, 0)) {
-            Ok(_) => {
-                if hierarchy_cv.is_empty() {
-                    Err(SegmentationError::FishNotFound)
-                }
-                else {
-                    Ok(contours_cv)
+        match as_mat_u8c1_mut(bitmap) {
+            Ok(bitmap_cv) => {
+                let mut contours_cv = VectorOfVectorOfPoint::new();
+                let mut hierarchy_cv = VectorOfVec4i::new();
+                // cv2.RETR_CCOMP: retrieves all of the contours and organizes them
+                //   into a two-level hierarchy. At the top level, there are external
+                //   boundaries of the components. At the second level, there are
+                //   boundaries of the holes. If there is another contour inside a hole
+                //   of a connected component, it is still put at the top level.
+                // cv2.CHAIN_APPROX_NONE: stores absolutely all the contour points.
+                match find_contours_with_hierarchy(&bitmap_cv, &mut contours_cv, &mut hierarchy_cv, RETR_CCOMP, CHAIN_APPROX_NONE, Point2i::new(0, 0)) {
+                    Ok(_) => {
+                        if hierarchy_cv.is_empty() {
+                            Err(SegmentationError::FishNotFound)
+                        }
+                        else {
+                            Ok(contours_cv)
+                        }
+                    },
+                    Err(error) => Err(SegmentationError::OpenCVError(error))
                 }
             },
             Err(error) => Err(SegmentationError::OpenCVError(error))
@@ -325,16 +321,19 @@ impl FishSegmentation {
     }
 
     fn rescale_polygon_to_src_size(&self, poly: VectorOfPoint, start_x: u32, start_y: u32, width_scale: f32, height_scale: f32) -> VectorOfPoint {
-        VectorOfPoint::from_iter(poly
+        let res = VectorOfPoint::from_iter(poly
             .iter()
             .map(|point| Point2i::new(
                 ((start_x as f32 + point.x as f32) * width_scale) as i32,
                 ((start_y as f32 + point.y as f32) * height_scale) as i32
             ))
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>());
+
+        println!("{}, {}", res.get(0).unwrap().x, res.get(0).unwrap().y);
+        res 
     }
 
-    fn as_u8c2_mat_array2(&self, mat: Mat, shape: (usize, usize)) -> Result<Array2<u8>, SegmentationError> {
+    fn as_u8c1_mat_array2(&self, mat: &Mat, shape: (usize, usize)) -> Result<Array2<u8>, SegmentationError> {
         let vec_result: Result<Vec<Vec<u8>>, _> = mat.to_vec_2d();
         match vec_result {
             Ok(vec) => {
@@ -362,6 +361,7 @@ impl FishSegmentation {
 
                 for ind in 0..mask_count {
                     if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
+                        println!("scores below thresh");
                         continue;
                     }
 
@@ -381,6 +381,7 @@ impl FishSegmentation {
 
                     // Ignore empty contpurs
                     if contours.is_empty() {
+                        println!("contours empty");
                         continue
                     }
 
@@ -388,6 +389,7 @@ impl FishSegmentation {
                     match contours.get(0) {
                         Ok(poly) => {
                             if poly.len() < 10 {
+                                println!("contours small");
                                 continue
                             }
 
@@ -408,7 +410,7 @@ impl FishSegmentation {
                 }
 
                 
-                Ok(self.as_u8c2_mat_array2(complete_mask_cv, (shape.0, shape.1))?)
+                Ok(self.as_u8c1_mat_array2(&complete_mask_cv, (shape.0, shape.1))?)
             },
             Err(error) => Err(SegmentationError::OpenCVError(error))
         }
@@ -418,11 +420,14 @@ impl FishSegmentation {
         let model = self.get_model()?;
         let resized_img = self.resize_img(&img)?;
 
+        // println!("{}", resized_img);
+        write(resized_img.clone());
+
         let (orig_height, orig_width, _) = img.dim();
         let (new_height, new_width, _) = resized_img.dim();
 
-        let height_scale = orig_height as f32 / new_height as f32;
         let width_scale = orig_width as f32 / new_width as f32;
+        let height_scale = orig_height as f32 / new_height as f32;
 
         match self.do_inference(&resized_img, model) {
             Ok(result) => {
@@ -442,17 +447,33 @@ mod tests {
 
     #[test]
     fn inference() {
-        let rust_img = image::io::Reader::open("./data/img8.png").unwrap().decode().unwrap().as_mut_rgb8().unwrap().clone();
-        let img = Array3::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize, 3), rust_img.as_raw().clone()).unwrap();
+        let rust_img = image::io::Reader::open("./data/img8.png").unwrap().decode().unwrap().as_rgb8().unwrap().clone();
+        let img_rgb = Array3::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize, 3), rust_img.as_raw().clone()).unwrap();
+
+        let (height, width, _) = img_rgb.dim();
+        let mut img_bgr = Array3::<u8>::zeros(img_rgb.dim());
         
+        for y in 0..height {
+            for x in 0..width {
+                img_bgr[[y, x, 0]] = img_rgb[[y, x, 2]];
+                img_bgr[[y, x, 1]] = img_rgb[[y, x, 1]];
+                img_bgr[[y, x, 2]] = img_rgb[[y, x, 0]];
+            }
+        }
+
         let rust_segmentations = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
-        let truth: Array2<u8> = Array2::from_shape_vec((rust_segmentations.height() as usize, rust_segmentations.width() as usize), rust_segmentations.as_raw().clone()).unwrap();
+        let truth = Array2::from_shape_vec((rust_segmentations.height() as usize, rust_segmentations.width() as usize), rust_segmentations.as_raw().clone()).unwrap()
+            .mapv(|v| v as i32);
         
         let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
-        let segmentations = seg.inference(&img).unwrap();
+        let segmentations = seg.inference(&img_bgr).unwrap()
+            .mapv(|v| v as i32);
 
-        println!("truth: {}, seg: {}", truth.into_raw_vec().iter().min().unwrap(), segmentations.into_raw_vec().iter().min().unwrap());
+        // println!("truth: {}, seg: {}", truth.into_raw_vec().iter().max().unwrap(), segmentations.into_raw_vec().iter().max().unwrap());
         // let res = truth - segmentations;
+        println!("{}, {}", truth.sum(), segmentations.sum());
+        // println!("{}", res.sum());
+        // assert_eq!(res.sum(), 0);
     }
 }

@@ -10,6 +10,7 @@ app_dirs2 = "2.5.5"
 bytes = "1.6.0"
 image = "0.25.1"
 ndarray = "0.15.6"
+ndarray-npy = "0.8.1"
 opencv = "0.91.3"
 ort = "2.0.0-rc.2"
 reqwest = {version = "0.12.4", features = ["blocking"]}

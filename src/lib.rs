@@ -1,4 +1,5 @@
 mod fish_segmentation;
+mod cv_conversion;
 
 pub use fish_segmentation::FishSegmentation;
 
