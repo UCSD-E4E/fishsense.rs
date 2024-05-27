@@ -9,8 +9,8 @@ use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
 use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
-use opencv::core::{Mat, Point2i, VectorToVec, CV_8UC1};
-use opencv::imgproc::{find_contours_with_hierarchy, CHAIN_APPROX_NONE, RETR_CCOMP};
+use opencv::core::{Mat, MatTraitConstManual, Point2i, CV_8UC1};
+use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
 use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
 use ort::Session;
 use reqwest::blocking::get;
@@ -324,16 +324,27 @@ impl FishSegmentation {
         }
     }
 
-    fn rescale_polygon_to_src_size(&self, poly: VectorOfPoint, start_x: u32, start_y: u32, width_scale: f32, height_scale: f32) -> Array2<i32> {
-        let arr: Array2<i32> = poly
+    fn rescale_polygon_to_src_size(&self, poly: VectorOfPoint, start_x: u32, start_y: u32, width_scale: f32, height_scale: f32) -> VectorOfPoint {
+        VectorOfPoint::from_iter(poly
             .iter()
-            .map(|point| [
+            .map(|point| Point2i::new(
                 ((start_x as f32 + point.x as f32) * width_scale) as i32,
-                ((start_y as f32 + point.y as f32) * height_scale) as i32])
-            .collect::<Vec<_>>()
-            .into();
+                ((start_y as f32 + point.y as f32) * height_scale) as i32
+            ))
+            .collect::<Vec<_>>())
+    }
 
-        arr
+    fn as_u8c2_mat_array2(&self, mat: Mat, shape: (usize, usize)) -> Result<Array2<u8>, SegmentationError> {
+        let vec_result: Result<Vec<Vec<u8>>, _> = mat.to_vec_2d();
+        match vec_result {
+            Ok(vec) => {
+                match Array2::from_shape_vec(shape, vec.iter().flatten().map(|v| v.clone()).collect()) {
+                    Ok(arr) => Ok(arr),
+                    Err(error) => Err(SegmentationError::ArrayShapeError(error))
+                }
+            },
+            Err(err) => Err(SegmentationError::OpenCVError(err))
+        }
     }
 
     fn convert_output_to_mask_and_polygons(
@@ -344,53 +355,63 @@ impl FishSegmentation {
         width_scale: f32, height_scale: f32,
         shape: (usize, usize, usize)) -> Result<Array2<u8>, SegmentationError> {
 
-        let complete_mask = Array2::<u8>::zeros((shape.0, shape.1));
-        let mask_count = scores.len();
+        // let mut complete_mask = Array2::<u8>::zeros((shape.0, shape.1));
+        match Mat::new_rows_cols_with_default(shape.0 as i32, shape.1 as i32, CV_8UC1, 0.into()) {
+            Ok(mut complete_mask_cv) => {
+                let mask_count = scores.len();
 
-        for ind in 0..mask_count {
-            if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
-                continue;
-            }
+                for ind in 0..mask_count {
+                    if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
+                        continue;
+                    }
 
-            let x1 = boxes[[0, ind]].ceil() as u32;
-            let y1 = boxes[[1, ind]].ceil() as u32;
-            let x2 = boxes[[2, ind]].floor() as u32;
-            let y2 = boxes[[3, ind]].floor() as u32;
-            let (mask_h, mask_w) = (y2 - y1, x2 - x1);
+                    let x1 = boxes[[0, ind]].ceil() as u32;
+                    let y1 = boxes[[1, ind]].ceil() as u32;
+                    let x2 = boxes[[2, ind]].floor() as u32;
+                    let y2 = boxes[[3, ind]].floor() as u32;
+                    let (mask_h, mask_w) = (y2 - y1, x2 - x1);
 
-            let mask = masks.slice(s![.., .., .., ind]).insert_axis(Axis(3));
-            // Threshold the mask converting to uint8 casuse opencv diesn't allow other type!
-            let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?
-                .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
+                    let mask = masks.slice(s![.., .., .., ind]).insert_axis(Axis(3));
+                    // Threshold the mask converting to uint8 casuse opencv diesn't allow other type!
+                    let np_mask = self.do_paste_mask(&mask, mask_h, mask_w)?
+                        .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
 
-            // Find contours in the binary mask
-            let contours = self.bitmap_to_polygon(&np_mask)?;
+                    // Find contours in the binary mask
+                    let contours = self.bitmap_to_polygon(&np_mask)?;
 
-            // Ignore empty contpurs
-            if contours.is_empty() {
-                continue
-            }
-
-            // Ignore small artifacts
-            match contours.get(0) {
-                Ok(poly) => {
-                    if poly.len() < 10 {
+                    // Ignore empty contpurs
+                    if contours.is_empty() {
                         continue
                     }
 
-                    // Convert local polygon to src image
-                    let polygon_full = self.rescale_polygon_to_src_size(
-                        poly,
-                        x1, y1,
-                        width_scale, height_scale);
+                    // Ignore small artifacts
+                    match contours.get(0) {
+                        Ok(poly) => {
+                            if poly.len() < 10 {
+                                continue
+                            }
 
-                    Ok(())
-                },
-                Err(error) => Err(SegmentationError::OpenCVError(error))
-            }?;
+                            // Convert local polygon to src image
+                            let polygon_full = self.rescale_polygon_to_src_size(
+                                poly,
+                                x1, y1,
+                                width_scale, height_scale);
+
+                            let color = (ind + 1) as i32;
+                            match fill_poly(&mut complete_mask_cv, &polygon_full, (color, color, color).into(), LINE_8, 0, Point2i::new(0, 0)) {
+                                Ok(_) => Ok(()),
+                                Err(error) => Err(SegmentationError::OpenCVError(error))
+                            }
+                        },
+                        Err(error) => Err(SegmentationError::OpenCVError(error))
+                    }?;
+                }
+
+                
+                Ok(self.as_u8c2_mat_array2(complete_mask_cv, (shape.0, shape.1))?)
+            },
+            Err(error) => Err(SegmentationError::OpenCVError(error))
         }
-
-        Ok(complete_mask)
     }
 
     pub fn inference(&self, img: &Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
@@ -424,8 +445,14 @@ mod tests {
         let rust_img = image::io::Reader::open("./data/img8.png").unwrap().decode().unwrap().as_mut_rgb8().unwrap().clone();
         let img = Array3::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize, 3), rust_img.as_raw().clone()).unwrap();
         
+        let rust_segmentations = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
+        let truth: Array2<u8> = Array2::from_shape_vec((rust_segmentations.height() as usize, rust_segmentations.width() as usize), rust_segmentations.as_raw().clone()).unwrap();
+        
         let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
-        let res = seg.inference(&img).unwrap();
+        let segmentations = seg.inference(&img).unwrap();
+
+        println!("truth: {}, seg: {}", truth.into_raw_vec().iter().min().unwrap(), segmentations.into_raw_vec().iter().min().unwrap());
+        // let res = truth - segmentations;
     }
 }
