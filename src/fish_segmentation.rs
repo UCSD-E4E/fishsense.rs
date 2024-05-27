@@ -1,4 +1,4 @@
-use crate::cv_conversion;
+use crate::cv_convsersion::{self, as_mat_u8c1_mut};
 
 use std::cmp::{max, min};
 use std::fs::{File, create_dir};
@@ -9,15 +9,14 @@ use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
 use image::RgbImage;
 use image::imageops::{resize, FilterType};
-use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
+use ndarray::{array, s, stack, Array, Array2, Array3, ArrayBase, ArrayView2, ArrayViewD, Axis, Dim, IxDynImpl, OwnedRepr};
 use ndarray_npy::NpzWriter;
-use opencv::core::{Mat, MatTraitConstManual, Point2i, CV_8UC1};
-use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
+use opencv::core::{Mat, MatTraitConstManual, Point2i, Size, CV_8UC1, CV_8UC3};
+use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, resize_def, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
 use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
 use ort::Session;
 use reqwest::blocking::get;
-
-use self::cv_conversion::as_mat_u8c1_mut;
+use cv_convert::{FromCv, IntoCv, TryFromCv, TryIntoCv};
 
 
 fn write(arr: Array3<f32>) {
@@ -33,10 +32,12 @@ pub enum SegmentationError {
     AppDirsError(app_dirs2::AppDirsError),
     ArrayShapeError(ndarray::ShapeError),
     CopyErr(u64),
+    CVToNDArrayError,
     DownloadError(reqwest::Error),
     FishNotFound,
-    GenericError,
     IOError(std::io::Error),
+    ModelLoadError,
+    NDArrayToCVError,
     OpenCVError(opencv::Error),
     OrtErr(ort::Error),
 }
@@ -164,7 +165,7 @@ impl FishSegmentation {
     fn get_model(&self) -> Result<&Session, SegmentationError> {
         match &self.model {
             Some(model) => Ok(model),
-            None => Err(SegmentationError::GenericError)
+            None => Err(SegmentationError::ModelLoadError)
         }
     }
 
@@ -197,16 +198,54 @@ impl FishSegmentation {
         let new_height: usize = new_height_fl32 as usize;
         let new_width: usize = new_width_fl32 as usize;
 
-        match RgbImage::from_raw(width as u32, height as u32, img.clone().into_raw_vec()) {
-            Some(img) => {
-                let resized_img = resize(&img, new_width as u32, new_height as u32, FilterType::Lanczos3);
-                match Array3::from_shape_vec((new_height, new_width, 3), resized_img.as_raw().clone()) {
-                    Ok(resized_img) => Ok(resized_img.mapv(|x| f32::from(x))),
-                    Err(error) => Err(SegmentationError::ArrayShapeError(error))
+        let conversion_result: Result<Mat, _> = img.try_into_cv();
+        match conversion_result {
+            Ok(mat) => {
+                let mut resized_img_cv = Mat::default();
+                match resize_def(&mat, &mut resized_img_cv, Size::new(new_width as i32, new_height as i32)) {
+                    Ok(_) => {
+                        let conversion_result: Result<Array3<u8>, _> = resized_img_cv.try_into_cv();
+                        match conversion_result {
+                            Ok(resized_img) => Ok(resized_img.mapv(|v| v as f32)),
+                            Err(_) => {
+                                println!("In resize_img");
+                                Err(SegmentationError::CVToNDArrayError)
+                            }
+                        }
+                    },
+                    Err(error) => Err(SegmentationError::OpenCVError(error))
                 }
-            },
-            None => Err(SegmentationError::GenericError)
+            }
+            Err(_) => Err(SegmentationError::NDArrayToCVError)
         }
+
+        // match as_mat_u8c3_mut(img) {
+        //     Ok(mat) => {
+        //         let mut resized_img_cv = Mat::default();
+        //         match resize_def(&mat, &mut resized_img_cv, Size::new(new_width as i32, new_height as i32)) {
+        //             Ok(_) => {
+        //                 // match as_u8c3_mat_array3(&resized_img_cv, (new_height, new_width, 3)) {
+        //                 //     Ok(resized_img) => Ok(resized_img.mapv(|v| v as f32)),
+        //                 //     Err(error) => Err(SegmentationError::ImageConversionError(error))
+        //                 // }
+        //                 Ok(Array3::zeros((10, 10, 3)))
+        //             },
+        //             Err(error) => Err(SegmentationError::OpenCVError(error))
+        //         }
+        //     },
+        //     Err(error) => Err(SegmentationError::ImageConversionError(error))
+        // }
+
+        // match RgbImage::from_raw(width as u32, height as u32, img.clone().into_raw_vec()) {
+        //     Some(img) => {
+        //         let resized_img = resize(&img, new_width as u32, new_height as u32, FilterType::Lanczos3);
+        //         match Array3::from_shape_vec((new_height, new_width, 3), resized_img.as_raw().clone()) {
+        //             Ok(resized_img) => Ok(resized_img.mapv(|x| f32::from(x))),
+        //             Err(error) => Err(SegmentationError::ArrayShapeError(error))
+        //         }
+        //     },
+        //     None => Err(SegmentationError::GenericError)
+        // }
     }
 
     fn do_inference(&self, img: &Array3<f32>, model: &Session) ->
@@ -316,7 +355,7 @@ impl FishSegmentation {
                     Err(error) => Err(SegmentationError::OpenCVError(error))
                 }
             },
-            Err(error) => Err(SegmentationError::OpenCVError(error))
+            Err(_) => Err(SegmentationError::NDArrayToCVError)
         }
     }
 
@@ -331,19 +370,6 @@ impl FishSegmentation {
 
         println!("{}, {}", res.get(0).unwrap().x, res.get(0).unwrap().y);
         res 
-    }
-
-    fn as_u8c1_mat_array2(&self, mat: &Mat, shape: (usize, usize)) -> Result<Array2<u8>, SegmentationError> {
-        let vec_result: Result<Vec<Vec<u8>>, _> = mat.to_vec_2d();
-        match vec_result {
-            Ok(vec) => {
-                match Array2::from_shape_vec(shape, vec.iter().flatten().map(|v| v.clone()).collect()) {
-                    Ok(arr) => Ok(arr),
-                    Err(error) => Err(SegmentationError::ArrayShapeError(error))
-                }
-            },
-            Err(err) => Err(SegmentationError::OpenCVError(err))
-        }
     }
 
     fn convert_output_to_mask_and_polygons(
@@ -409,8 +435,14 @@ impl FishSegmentation {
                     }?;
                 }
 
-                
-                Ok(self.as_u8c1_mat_array2(&complete_mask_cv, (shape.0, shape.1))?)
+                let conversion_result: Result<Array3<u8>, _> = (&complete_mask_cv).try_into_cv();
+                match conversion_result {
+                    Ok(complete_mask) => Ok(complete_mask.remove_axis(Axis(2))),
+                    Err(_) => {
+                        println!("In convert_output_to_mask_and_polygons");
+                        Err(SegmentationError::CVToNDArrayError)
+                    }
+                }
             },
             Err(error) => Err(SegmentationError::OpenCVError(error))
         }
@@ -419,9 +451,6 @@ impl FishSegmentation {
     pub fn inference(&self, img: &Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
         let model = self.get_model()?;
         let resized_img = self.resize_img(&img)?;
-
-        // println!("{}", resized_img);
-        write(resized_img.clone());
 
         let (orig_height, orig_width, _) = img.dim();
         let (new_height, new_width, _) = resized_img.dim();
