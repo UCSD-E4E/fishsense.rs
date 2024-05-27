@@ -65,7 +65,6 @@ impl FishHeadTailDetector {
             new_x[i] = x[i] as f64 - x_mean;
             new_y[i] = y[i] as f64 - y_mean;
         }
-
         let x_min = new_x.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let y_min = new_y.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         
@@ -93,6 +92,7 @@ impl FishHeadTailDetector {
         
         let mut sort_indices = argsort_by(&real_evals, cmp_f64);
         sort_indices.reverse();
+
         let splice = evecs.get(0..evecs.nrows(), sort_indices[0]).as_2d();
 
         let (x_v1, y_v1) = (splice.read(0, 0), splice.read(1,0));
@@ -113,6 +113,8 @@ impl FishHeadTailDetector {
         coord1[1] -= y_min;
         coord2[1] += y_min;
 
+
+
         let m = y_v1.re / x_v1.re;
         let b = coord1[1] - m * coord1[0];
 
@@ -121,10 +123,6 @@ impl FishHeadTailDetector {
         for i in 0..x.len() {
             y_target[i] = m * (x[i] as f64) + b;
         }
-
-        let x_pts = vec![0, width];
-        let y_pts: Array1<f64> = array![b, m * (width as f64) + b];
-        
         let mut y_abs_diff : Vec<usize> = Vec::default();
         for i in 0..y.len() {
             if (y[i] as f64 - y_target[i]).abs() < 1.0 {
@@ -141,9 +139,13 @@ impl FishHeadTailDetector {
         }
 
         let coords: ArrayBase<OwnedRepr<usize>, Dim<[usize; 2]>> = stack![Axis(0), new_x, new_y];
-        let arg_min = *x.min().unwrap() as usize;
-        let arg_max = *x.max().unwrap() as usize;
-        
+
+        let arg_min = *new_x.min().unwrap() as usize;
+        let arg_max = *new_x.max().unwrap() as usize;
+
+        let arg_min = new_x.iter().zip(0..).min().unwrap().1;
+        let arg_max = new_x.iter().zip(0..).max().unwrap().1;
+
         let mut left_coord: ArrayBase<OwnedRepr<usize>, Dim<[usize; 1]>> = array![*coords.get((0, arg_min)).unwrap(), *coords.get((1, arg_min)).unwrap()];
         let mut right_coord = array![*coords.get((0, arg_max)).unwrap(), *coords.get((1, arg_max)).unwrap()];
 
@@ -197,14 +199,9 @@ mod tests {
 
     #[test]
     fn test() {
-        let mask: Array2<u8> = array![
-            [0, 0, 0, 1, 0],
-            [0, 1, 0, 0, 0],
-            [0, 1, 1, 1, 0],
-            [0, 0, 0, 1, 0],
-            [0, 0, 1, 0, 0],
-        ];
-        FishHeadTailDetector::find_head_tail(mask);
-        assert_eq!(4, 4);
+        let rust_img = image::io::Reader::open("./src/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
+        let mask: ArrayBase<OwnedRepr<u8>, Dim<[usize; 2]>> = Array2::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize), rust_img.as_raw().clone()).unwrap();
+        let res = FishHeadTailDetector::find_head_tail(mask);
+        assert_eq!(res, (array![1073, 1114], array![2317,1054]));
     }
 }
