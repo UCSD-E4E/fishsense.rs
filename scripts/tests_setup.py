@@ -25,8 +25,12 @@ def download_data(creds: Dict[str, str]):
     script_path = Path(__file__)
 
     data_path = script_path.parent.parent / "data"
-    data_path.unlink(missing_ok=True)
-    data_path.mkdir()
+
+    if not data_path.exists():
+        data_path.mkdir()
+
+    for file in data_path.glob("*"):
+        file.unlink()
 
     nas_unzip(
         network_path="smb://e4e-nas.ucsd.edu:6021/temp/github_actions/fishsensers/fishsensersTest.zip",
