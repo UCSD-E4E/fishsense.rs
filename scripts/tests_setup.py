@@ -24,9 +24,13 @@ def get_creds() -> Dict[str, str]:
 def download_data(creds: Dict[str, str]):
     script_path = Path(__file__)
 
+    data_path = Path("./data")
+    if not data_path.exists():
+        data_path.mkdir()
+
     nas_unzip(
         network_path="smb://e4e-nas.ucsd.edu:6021/temp/github_actions/fishsense.rs/fishsensersTest.zip",
-        output_path= Path("./data"),
+        output_path= data_path,
         username=creds["username"],
         password=creds["password"],
     )
