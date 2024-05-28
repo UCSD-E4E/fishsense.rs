@@ -26,7 +26,7 @@ def download_data(creds: Dict[str, str]):
 
     nas_unzip(
         network_path="smb://e4e-nas.ucsd.edu:6021/temp/github_actions/fishsense.rs/fishsensersTest.zip",
-        output_path=script_path.parent.parent / "data",
+        output_path= "./data",
         username=creds["username"],
         password=creds["password"],
     )
