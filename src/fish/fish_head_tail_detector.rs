@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test() {
-        let rust_img = image::io::Reader::open("./src/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
+        let rust_img = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
         let mask: ArrayBase<OwnedRepr<u8>, Dim<[usize; 2]>> = Array2::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize), rust_img.as_raw().clone()).unwrap();
         let res = FishHeadTailDetector::find_head_tail(mask);
         assert_eq!(res, (array![1073, 1114], array![2317,1054]));
