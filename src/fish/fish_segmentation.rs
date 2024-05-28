@@ -367,37 +367,45 @@ impl FishSegmentation {
                         .mapv(|v| if v > FishSegmentation::MASK_THRESHOLD {255 as u8} else {0});
 
                     // Find contours in the binary mask
-                    let contours = self.bitmap_to_polygon(&np_mask)?;
-
-                    // Ignore empty contpurs
-                    if contours.is_empty() {
-                        println!("contours empty");
-                        continue
-                    }
-
-                    // Ignore small artifacts
-                    match contours.get(0) {
-                        Some(poly) => {
-                            if poly.len() < 10 {
-                                println!("contours small");
+                    match self.bitmap_to_polygon(&np_mask) {
+                        Ok(contours) => {
+                            // Ignore empty contpurs
+                            if contours.is_empty() {
+                                println!("contours empty");
                                 continue
                             }
 
-                            // Convert local polygon to src image
-                            let polygon_full = self.rescale_polygon_to_src_size(
-                                poly,
-                                x1, y1,
-                                width_scale, height_scale);
+                            // Ignore small artifacts
+                            match contours.get(0) {
+                                Some(poly) => {
+                                    if poly.len() < 10 {
+                                        println!("contours small");
+                                        continue
+                                    }
 
-                            let color = (ind + 1) as i32;
-                            println!("adding poly");
-                            match fill_poly(&mut complete_mask_cv, &polygon_full, (color, color, color).into(), LINE_8, 0, Point2i::new(0, 0)) {
-                                Ok(_) => Ok(()),
-                                Err(error) => Err(SegmentationError::OpenCVError(error))
-                            }
+                                    // Convert local polygon to src image
+                                    let polygon_full = self.rescale_polygon_to_src_size(
+                                        poly,
+                                        x1, y1,
+                                        width_scale, height_scale);
+
+                                    let color = (ind + 1) as i32;
+                                    println!("adding poly");
+                                    match fill_poly(&mut complete_mask_cv, &polygon_full, (color, color, color).into(), LINE_8, 0, Point2i::new(0, 0)) {
+                                        Ok(_) => Ok(()),
+                                        Err(error) => Err(SegmentationError::OpenCVError(error))
+                                    }
+                                },
+                                None => Err(SegmentationError::PolyNotFound)
+                            }?;
                         },
-                        None => Err(SegmentationError::PolyNotFound)
-                    }?;
+                        Err(error) => {
+                            match error {
+                                SegmentationError::FishNotFound => Ok(()),
+                                _ => Err(error)
+                            }?
+                        }
+                    }
                 }
 
                 let conversion_result: Result<Array3<u8>, _> = (&complete_mask_cv).try_into_cv();
