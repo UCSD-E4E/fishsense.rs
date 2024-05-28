@@ -7,98 +7,13 @@ use std::path::PathBuf;
 
 use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
-use image::RgbImage;
-use image::imageops::{resize, FilterType};
-use ndarray::{array, s, stack, Array, Array2, Array3, Array4, ArrayBase, ArrayView2, ArrayViewD, Axis, Dim, IxDynImpl, OwnedRepr, ViewRepr};
-use ndarray_npy::NpzWriter;
-use opencv::core::{Mat, MatTraitConstManual, Point2i, Size, VectorToVec, CV_8UC1, CV_8UC3};
+use ndarray::{s, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
+use opencv::core::{Mat, Point2i, Size, VectorToVec, CV_8UC1};
 use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, resize_def, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
 use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
 use ort::Session;
 use reqwest::blocking::get;
-use cv_convert::{FromCv, IntoCv, TryFromCv, TryIntoCv};
-
-fn write<T>(arr: &ArrayBase<OwnedRepr<T>, Dim<IxDynImpl>>) where T : ndarray_npy::WritableElement {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write2f(arr: &Array2<f32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write3f(arr: &Array3<f32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write4f(arr: &Array4<f32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write2i(arr: &Array2<i32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write3i(arr: &Array3<i32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write4i(arr: &Array4<i32>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write2u(arr: &Array2<u8>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write3u(arr: &Array3<u8>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write4u(arr: &Array4<u8>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    npz.add_array("arr", &arr).unwrap();
-    npz.finish().unwrap();
-}
-
-fn write_vec_vec_p(vec: &Vec<VectorOfPoint>) {
-    let mut npz = NpzWriter::new(File::create("../outputs/rust.npz").unwrap());
-    
-    let mut idx = -1;
-    for e in vec {
-        idx += 1;
-        let mut arr = Array2::<i32>::zeros((e.len() as usize, 2));
-        let mut p_idx = 0;
-        for p in e {
-            arr[[p_idx, 0]] = p.x;
-            arr[[p_idx, 1]] = p.y;
-            p_idx += 1;
-
-        }
-        npz.add_array(idx.to_string().as_str(), &arr).unwrap();
-    }
-
-    npz.finish().unwrap();
-}
-
-
+use cv_convert::TryIntoCv;
 
 #[derive(Debug)]
 pub enum SegmentationError {
@@ -292,34 +207,6 @@ impl FishSegmentation {
             }
             Err(_) => Err(SegmentationError::NDArrayToCVError)
         }
-
-        // match as_mat_u8c3_mut(img) {
-        //     Ok(mat) => {
-        //         let mut resized_img_cv = Mat::default();
-        //         match resize_def(&mat, &mut resized_img_cv, Size::new(new_width as i32, new_height as i32)) {
-        //             Ok(_) => {
-        //                 // match as_u8c3_mat_array3(&resized_img_cv, (new_height, new_width, 3)) {
-        //                 //     Ok(resized_img) => Ok(resized_img.mapv(|v| v as f32)),
-        //                 //     Err(error) => Err(SegmentationError::ImageConversionError(error))
-        //                 // }
-        //                 Ok(Array3::zeros((10, 10, 3)))
-        //             },
-        //             Err(error) => Err(SegmentationError::OpenCVError(error))
-        //         }
-        //     },
-        //     Err(error) => Err(SegmentationError::ImageConversionError(error))
-        // }
-
-        // match RgbImage::from_raw(width as u32, height as u32, img.clone().into_raw_vec()) {
-        //     Some(img) => {
-        //         let resized_img = resize(&img, new_width as u32, new_height as u32, FilterType::Lanczos3);
-        //         match Array3::from_shape_vec((new_height, new_width, 3), resized_img.as_raw().clone()) {
-        //             Ok(resized_img) => Ok(resized_img.mapv(|x| f32::from(x))),
-        //             Err(error) => Err(SegmentationError::ArrayShapeError(error))
-        //         }
-        //     },
-        //     None => Err(SegmentationError::GenericError)
-        // }
     }
 
     fn do_inference(&self, img: &Array3<f32>, model: &Session) ->
@@ -336,58 +223,6 @@ impl FishSegmentation {
         let scores = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
 
         Ok((boxes, masks, scores))
-    }
-
-    fn value_or_zero(&self, input: &Array4<f32>, y: f32, x: f32) -> f32 {
-        let (height, width, _, _) = input.dim();
-
-        if y < 0.0 || y >= height as f32 || x < 0.0 || x >= width as f32 {
-            0.0
-        }
-        else {
-            input[[y as usize, x as usize, 0, 0]]
-        }
-    }
-
-    fn grid_sample(&self, input: &Array4<f32>, grid: &Array4<f32>) -> Array2::<f32> {
-        let (h_in, w_in, _, _) = input.dim();
-        let (_, h_out, w_out, _) = grid.dim();
-
-        let mut output = Array2::<f32>::zeros((h_out, w_out));
-        for h in 0..h_out {
-            for w in 0..w_out {
-                let x = ((grid[[0, h, w, 0]] + 1.0) / 2.0) * w_in as f32 - 1.0;
-                let y = ((grid[[0, h, w, 1]] + 1.0) / 2.0) * h_in as f32;
-                let x0 = x.floor();
-                let x1 = x.ceil();
-                let y0 = y.floor();
-                let y1 = y.ceil();
-
-                let mut x_diff = x1 - x0;
-                let mut y_diff = y1 - y0;
-
-                if x_diff == 0.0 {
-                    x_diff = 1.0;
-                }
-
-                if y_diff == 0.0 {
-                    y_diff = 1.0;
-                }
-
-                // See: https://en.wikipedia.org/wiki/Bilinear_interpolation
-                let q00 = self.value_or_zero(input, y0, x0);
-                let q01 = self.value_or_zero(input, y1, x0,);
-                let q10 = self.value_or_zero(input, y0, x1,);
-                let q11 = self.value_or_zero(input, y1, x1,);
-
-                let frac = 1.0 / (x_diff * y_diff);
-                let mat = array![[(x1 - x), (x - x0)]].dot(&array![[q00, q01], [q10, q11]]).dot(&array![[y1 - y], [y - y0]]);
-
-                output[[h, w]] = frac * mat[[0, 0]];
-            }
-        }
-
-        output
     }
 
     fn do_paste_mask(&self, masks: &Array2<f32>, img_h: u32, img_w: u32) -> Result<Array2<f32>, SegmentationError> {
@@ -414,43 +249,6 @@ impl FishSegmentation {
             },
             Err(_) => Err(SegmentationError::NDArrayToCVError)
         }
-
-        // let x0_int: f32 = 0.0;
-        // let y0_int: f32 = 0.0;
-        // let x1_int = img_w as f32;
-        // let y1_int = img_h as f32;
-
-        // let x0 = array![[0.0]];
-        // let y0 = array![[0.0]];
-        // let x1 = array![[img_w as f32]];
-        // let y1 = array![[img_h as f32]];
-
-        // let mut img_y = (Array::range(y0_int, y1_int, 1.0) + 0.5).insert_axis(Axis(0));
-        // let mut img_x = (Array::range(x0_int, x1_int, 1.0) + 0.5).insert_axis(Axis(0));
-        // img_y = (img_y - &y0) / (&y1 - &y0) * 2.0 ;
-        // img_x = (img_x - &x0) / (&x1 - &x0) * 2.0;
-
-        // let img_y_len = img_y.len();
-        // let img_x_len = img_x.len();
-
-        // let gy_vec = img_y.into_raw_vec().iter().flat_map(|&f| std::iter::repeat(f.clone()).take(img_x_len)).collect::<Vec<f32>>();
-        // match Array3::from_shape_vec((1, img_y_len, img_x_len), gy_vec) {
-        //     Ok(gy) => {
-        //         let gx_vec = img_x.into_raw_vec().iter().map(|&f| f.clone()).cycle().take(img_x_len * img_y_len).collect::<Vec<f32>>();
-        //         match Array3::from_shape_vec((1, img_y_len, img_x_len), gx_vec) {
-        //             Ok(gx) => {
-        //                 let grid = stack![Axis(3), gx, gy];
-        //                 // write4f(&grid);
-
-        //                 let resized_mask = self.grid_sample(masks, &grid);
-
-        //                 Ok(resized_mask)
-        //             },
-        //             Err(error) => Err(SegmentationError::ArrayShapeError(error))
-        //         }
-        //     },
-        //     Err(error) => Err(SegmentationError::ArrayShapeError(error))
-        // }
     }
 
     fn bitmap_to_polygon(&self, bitmap: &Array2<u8>) -> Result<Vec<VectorOfPoint>, SegmentationError> {
@@ -468,9 +266,6 @@ impl FishSegmentation {
                 // cv2.CHAIN_APPROX_NONE: stores absolutely all the contour points.
                 match find_contours_with_hierarchy(&bitmap_cv, &mut contours_cv, &mut hierarchy_cv, RETR_CCOMP, CHAIN_APPROX_NONE, Point2i::new(0, 0)) {
                     Ok(_) => {
-                        let c_len = contours_cv.len();
-                        let h_len = hierarchy_cv.len();                        
-
                         if hierarchy_cv.is_empty() {
                             Err(SegmentationError::FishNotFound)
                         }
@@ -544,8 +339,6 @@ impl FishSegmentation {
                     // Find contours in the binary mask
                     let contours = self.bitmap_to_polygon(&np_mask)?;
 
-                    write_vec_vec_p(&contours);
-
                     // Ignore empty contpurs
                     if contours.is_empty() {
                         println!("contours empty");
@@ -608,7 +401,6 @@ impl FishSegmentation {
                 let (boxes, masks, scores) = result;
                 let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, width_scale, height_scale, img.dim())?;
 
-                write2u(&masks);
                 Ok(masks)
             }
             Err(error) => Err(SegmentationError::OrtErr(error))
