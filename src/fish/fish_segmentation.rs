@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::fmt::Display;
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
@@ -27,6 +28,37 @@ pub enum SegmentationError {
     OpenCVError(opencv::Error),
     OrtErr(ort::Error),
     PolyNotFound,
+}
+
+impl Display for SegmentationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SegmentationError::AppDirsError(error) => 
+                write!(f, "{}", error),
+            SegmentationError::ArrayShapeError(error) => 
+                write!(f, "{}", error),
+            SegmentationError::CopyErr(error) => 
+                write!(f, "{}", error),
+            SegmentationError::CVToNDArrayError => 
+                write!(f, "CVToNDArrayError"),
+            SegmentationError::DownloadError(error) => 
+                write!(f, "{}", error),
+            SegmentationError::FishNotFound => 
+                write!(f, "FishNotFound"),
+            SegmentationError::IOError(error) => 
+                write!(f, "{}", error),
+            SegmentationError::ModelLoadError => 
+                write!(f, "ModelLoadError"),
+            SegmentationError::NDArrayToCVError => 
+                write!(f, "NDArrayToCVError"),
+            SegmentationError::OpenCVError(error) => 
+                write!(f, "{}", error),
+            SegmentationError::OrtErr(error) => 
+                write!(f, "{}", error),
+            SegmentationError::PolyNotFound => 
+                write!(f, "PolyNotFound")
+        }
+    }
 }
 
 pub struct FishSegmentation {
