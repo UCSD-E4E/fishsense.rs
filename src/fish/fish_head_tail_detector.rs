@@ -9,14 +9,6 @@ pub struct FishHeadTailDetector {
 
 }
 
-trait ToNDArray<T> {
-
-}
-
-impl<T> ToNDArray<T> for Vec<Vec<f64>> {
-    
-}
-
 impl FishHeadTailDetector {
     pub fn find_head_tail(mask: Array2<u8>) -> (Array1<usize>, Array1<usize>) {
         let nonzero: Array1<(i32, i32)> = mask
