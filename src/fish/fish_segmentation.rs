@@ -408,36 +408,23 @@ impl FishSegmentation {
 
 #[cfg(test)]
 mod tests {
+    use ndarray_npy::NpzReader;
+    use ndarray_stats::DeviationExt;
+    use std::fs::File;
+
     use super::*;
 
     #[test]
     fn inference() {
-        let rust_img = image::io::Reader::open("./data/img8.png").unwrap().decode().unwrap().as_rgb8().unwrap().clone();
-        let img_rgb = Array3::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize, 3), rust_img.as_raw().clone()).unwrap();
-
-        let (height, width, _) = img_rgb.dim();
-        let mut img_bgr = Array3::<u8>::zeros(img_rgb.dim());
-        
-        for y in 0..height {
-            for x in 0..width {
-                img_bgr[[y, x, 0]] = img_rgb[[y, x, 2]];
-                img_bgr[[y, x, 1]] = img_rgb[[y, x, 1]];
-                img_bgr[[y, x, 2]] = img_rgb[[y, x, 0]];
-            }
-        }
-        let rust_segmentations = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
-        let truth = Array2::from_shape_vec((rust_segmentations.height() as usize, rust_segmentations.width() as usize), rust_segmentations.as_raw().clone()).unwrap()
-            .mapv(|v| v as i32);
+        let mut npz = NpzReader::new(File::open("data/fish_segmentation.npz").unwrap()).unwrap();
+        let img8: Array3<u8> = npz.by_name("img8").unwrap();
+        let truth: Array2<i32> = npz.by_name("segmentations").unwrap();
         
         let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
-        let segmentations = seg.inference(&img_bgr).unwrap()
+        let segmentations = seg.inference(&img8).unwrap()
             .mapv(|v| v as i32);
 
-        // println!("truth: {}, seg: {}", truth.into_raw_vec().iter().max().unwrap(), segmentations.into_raw_vec().iter().max().unwrap());
-        // let res = truth - segmentations;
-        println!("{}, {}", truth.sum(), segmentations.sum());
-        // println!("{}", res.sum());
-        // assert_eq!(res.sum(), 0);
+        assert_eq!(segmentations.mean_abs_err(&truth).unwrap(), 0.0);
     }
 }
