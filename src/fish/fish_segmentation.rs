@@ -227,7 +227,6 @@ impl FishSegmentation {
                         match conversion_result {
                             Ok(resized_img) => Ok(resized_img.mapv(|v| v as f32)),
                             Err(_) => {
-                                println!("In resize_img");
                                 Err(SegmentationError::CVToNDArrayError)
                             }
                         }
@@ -322,7 +321,6 @@ impl FishSegmentation {
             ))
             .collect::<Vec<_>>());
 
-        println!("{}, {}", res.get(0).unwrap().x, res.get(0).unwrap().y);
         res 
     }
 
@@ -347,9 +345,7 @@ impl FishSegmentation {
                 let mask_count = scores.len();
 
                 for ind in 0..mask_count {
-                    println!("{}", scores[ind]);
                     if scores[ind] <= FishSegmentation::SCORE_THRESHOLD {
-                        println!("scores below thresh, {}", scores[ind]);
                         continue;
                     }
 
@@ -371,7 +367,6 @@ impl FishSegmentation {
                         Ok(contours) => {
                             // Ignore empty contpurs
                             if contours.is_empty() {
-                                println!("contours empty");
                                 continue
                             }
 
@@ -379,7 +374,6 @@ impl FishSegmentation {
                             match contours.get(0) {
                                 Some(poly) => {
                                     if poly.len() < 10 {
-                                        println!("contours small");
                                         continue
                                     }
 
@@ -390,7 +384,6 @@ impl FishSegmentation {
                                         width_scale, height_scale);
 
                                     let color = (ind + 1) as i32;
-                                    println!("adding poly");
                                     match fill_poly(&mut complete_mask_cv, &polygon_full, (color, color, color).into(), LINE_8, 0, Point2i::new(0, 0)) {
                                         Ok(_) => Ok(()),
                                         Err(error) => Err(SegmentationError::OpenCVError(error))
@@ -415,7 +408,6 @@ impl FishSegmentation {
                         Ok(complete_mask)
                     }
                     Err(_) => {
-                        println!("In convert_output_to_mask_and_polygons");
                         Err(SegmentationError::CVToNDArrayError)
                     }
                 }
