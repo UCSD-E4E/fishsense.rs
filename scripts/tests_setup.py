@@ -22,7 +22,9 @@ def get_creds() -> Dict[str, str]:
 
 
 def download_data(creds: Dict[str, str]):
-    data_path = Path("./data")
+    script_path = Path(__file__)
+
+    data_path = script_path.parent.parent / "data"
     if not data_path.exists():
         data_path.mkdir()
 
