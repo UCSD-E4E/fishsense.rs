@@ -1,25 +1,40 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt::Display};
 
 use faer::Mat;
 use ndarray::{array, s, stack, Array1, Array2, ArrayBase, Axis, Dim, OwnedRepr};
 // use ndarray_linalg::Eig;
-use ndarray_stats::CorrelationExt;
+use ndarray_stats::{errors::EmptyInput, CorrelationExt};
 use num::Complex;
+
+#[derive(Debug)]
+pub enum HeadTailError {
+    MinError,
+    MaxError,
+    COVError(EmptyInput),
+    OOBError
+}
+
+impl Display for HeadTailError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeadTailError::MinError => 
+                write!(f, "Minimum value of vector could not be computed"),
+            HeadTailError::MaxError => 
+                write!(f, "Maximum value of vector could not be computed"),
+            HeadTailError::COVError(error) => 
+                write!(f, "{}", error),
+            HeadTailError::OOBError =>
+                write!(f, "Index is out of bounds after argmin/argmax calculation to find coordinate")
+        }
+    }
+}
 
 pub struct FishHeadTailDetector {
 
 }
 
-trait ToNDArray<T> {
-
-}
-
-impl<T> ToNDArray<T> for Vec<Vec<f64>> {
-    
-}
-
 impl FishHeadTailDetector {
-    fn find_head_tail(mask: Array2<u8>) -> (Array1<usize>, Array1<usize>) {
+    fn find_head_tail(mask: Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
         let nonzero: Array1<(i32, i32)> = mask
                 .indexed_iter()
                 .filter_map(|(index, &item)| if item != 0 {Some((index.0 as i32, index.1 as i32))} else { None })
@@ -33,12 +48,11 @@ impl FishHeadTailDetector {
             y[i] = nonzero[i].0;
             x[i] = nonzero[i].1;
         }
+        let x_min = min(&x)? as usize;
+        let y_min = min(&y)? as usize;
+        let x_max = max(&x)? as usize;
+        let y_max = max(&y)? as usize;
 
-        let x_min = *x.iter().min().unwrap() as usize;
-        let y_min = *y.iter().min().unwrap() as usize;
-        let x_max = *x.iter().max().unwrap() as usize;
-        let y_max = *y.iter().max().unwrap() as usize;
-        
         let mask_crop: ArrayBase<ndarray::ViewRepr<&u8>, Dim<[usize; 2]>> = mask.slice(s![y_min..y_max,x_min..x_max]);
 
 
@@ -70,7 +84,10 @@ impl FishHeadTailDetector {
         
         let coords: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>> = stack![Axis(0), new_x, new_y];
 
-        let cov = CorrelationExt::cov(&coords, 1.0).unwrap();
+        let cov = match CorrelationExt::cov(&coords, 1.0) {
+            Ok(matrix) => Ok(matrix),
+            Err(error) => Err(HeadTailError::COVError(error))
+        }?;
 
         let mut mat: Mat<f64> = Mat::zeros(2, cov.select(Axis(0), &[0]).len());
 
@@ -140,11 +157,18 @@ impl FishHeadTailDetector {
 
         let coords: ArrayBase<OwnedRepr<usize>, Dim<[usize; 2]>> = stack![Axis(0), new_x, new_y];
 
-        let arg_min = new_x.iter().zip(0..).min().unwrap().1;
-        let arg_max = new_x.iter().zip(0..).max().unwrap().1;
+        let arg_min = match new_x.iter().zip(0..).min() {
+            Some((_, min)) => Ok(min),
+            None => Err(HeadTailError::MinError)
+        }?;
 
-        let mut left_coord: ArrayBase<OwnedRepr<usize>, Dim<[usize; 1]>> = array![*coords.get((0, arg_min)).unwrap(), *coords.get((1, arg_min)).unwrap()];
-        let mut right_coord = array![*coords.get((0, arg_max)).unwrap(), *coords.get((1, arg_max)).unwrap()];
+        let arg_max = match new_x.iter().zip(0..).max() {
+            Some((_, min)) => Ok(min),
+            None => Err(HeadTailError::MaxError)
+        }?;
+
+        let mut left_coord: ArrayBase<OwnedRepr<usize>, Dim<[usize; 1]>> = array![get(&coords, (0, arg_min))?, get(&coords, (1, arg_min))?];
+        let mut right_coord = array![get(&coords, (0, arg_max))?, get(&coords, (1, arg_max))?];
 
         let mut y = Array1::default(nonzero.len());
         let mut x = Array1::default(nonzero.len());
@@ -155,15 +179,15 @@ impl FishHeadTailDetector {
             x[i] = nonzero[i].1;
         }
 
-        let x_min = *x.iter().min().unwrap() as usize;
-        let y_min = *y.iter().min().unwrap() as usize;
+        let x_min = min(&x)? as usize;
+        let y_min = min(&y)? as usize;
 
         left_coord[0] += x_min;
         right_coord[0] += x_min;
         left_coord[1] += y_min;
         right_coord[1] += y_min;
         
-        return (left_coord, right_coord);
+        Ok((left_coord, right_coord))
     } 
 }
 
@@ -190,15 +214,37 @@ fn cmp_f64(a: &f64, b: &f64) -> Ordering {
     }
     return Ordering::Equal;
 }
+
+fn min <T:Ord + Copy> (array: &Array1<T>) -> Result<T, HeadTailError> {
+    match (*array).iter().min() {
+        None => Err(HeadTailError::MinError),
+        Some(t) => Ok(*t)
+    }    
+}
+
+fn max <T:Ord + Copy> (array: &Array1<T>) -> Result<T, HeadTailError> {
+    match (*array).iter().max() {
+        None => Err(HeadTailError::MaxError),
+        Some(t) => Ok(*t)
+    }    
+}
+
+fn get(array: &ArrayBase<OwnedRepr<usize>, Dim<[usize; 2]>>, index: (usize, usize)) -> Result<usize, HeadTailError> {
+    match array.get(index) {
+        None => Err(HeadTailError::OOBError),
+        Some(coord) => Ok(*coord)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test() {
-        let rust_img = image::io::Reader::open("./src/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
+        let rust_img = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
         let mask: ArrayBase<OwnedRepr<u8>, Dim<[usize; 2]>> = Array2::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize), rust_img.as_raw().clone()).unwrap();
-        let res = FishHeadTailDetector::find_head_tail(mask);
+        let res = FishHeadTailDetector::find_head_tail(mask).unwrap();
         assert_eq!(res, (array![1073, 1114], array![2317,1054]));
     }
 }
