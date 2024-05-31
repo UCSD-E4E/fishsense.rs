@@ -15,6 +15,15 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Setup
+      run: |
+        sudo apt-get -y install libopencv-dev clang libclang-dev
+        pip install git+https://github.com/UCSD-E4E/synology-download.git
+    - name: Download Test data
+      env:
+        NAS_CREDS: ${{ secrets.NAS_CREDS }}
+      run: |
+        python ./scripts/tests_setup.py
     - name: Build
       run: cargo build --verbose
     - name: Run tests
