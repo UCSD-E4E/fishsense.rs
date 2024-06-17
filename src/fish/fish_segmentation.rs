@@ -69,7 +69,7 @@ pub struct FishSegmentation {
 
 impl FishSegmentation {
     const MIN_SIZE_TEST: usize = 800;
-    const MAX_SIZE_TEST: usize = 1333;
+    const MAX_SIZE_TEST: usize = 1058;
 
     const SCORE_THRESHOLD: f32 = 0.3;
     const MASK_THRESHOLD: f32 = 0.5;
