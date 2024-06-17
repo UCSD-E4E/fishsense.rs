@@ -191,7 +191,7 @@ impl FishSegmentation {
     fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<f32>, SegmentationError> {
         let (height, width, _) = img.dim();
 
-        let size = FishSegmentation::MIN_SIZE_TEST as f32 * 1.0;
+        let size = FishSegmentation::MIN_SIZE_TEST as f32;
         let mut scale = size / min(height, width) as f32;
         println!("RUST: scale: {}", scale);
 
@@ -202,6 +202,8 @@ impl FishSegmentation {
 
             new_height_fl32 = size;
             new_width_fl32 = scale * width as f32;
+
+            println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
         else {
             println!("RUST: height >= width");
