@@ -272,6 +272,8 @@ impl FishSegmentation {
         clone.swap_axes(2, 1);
         clone.swap_axes(1, 0);
 
+        println!("RUST: clone: {}, {}, {}", clone.shape()[0], clone.shape()[1], clone.shape()[2]);
+
         println!("RUST: Before Run");
         let outputs = model.run(ort::inputs!["argument_1.1" => clone.view()]?)?;
         println!("RUST: After Run");
