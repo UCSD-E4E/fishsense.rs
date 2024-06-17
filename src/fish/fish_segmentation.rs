@@ -193,23 +193,31 @@ impl FishSegmentation {
 
         let size = FishSegmentation::MIN_SIZE_TEST as f32 * 1.0;
         let mut scale = size / min(height, width) as f32;
+        println!("RUST: scale: {}", scale);
 
         let mut new_height_fl32: f32;
         let mut new_width_fl32: f32;
         if height < width {
+            println!("RUST: height < width");
+
             new_height_fl32 = size;
             new_width_fl32 = scale * width as f32;
         }
         else {
+            println!("RUST: height >= width");
             new_height_fl32 = scale * height as f32;
             new_width_fl32 = size;
         }
 
         let max_size: usize = max(new_height_fl32 as usize, new_width_fl32 as usize);
+        println!("RUST: max_size: {}", max_size);
         if  max_size > FishSegmentation::MAX_SIZE_TEST {
+            println!("RUST: {} > {}", max_size, FishSegmentation::MAX_SIZE_TEST);
             scale = FishSegmentation::MAX_SIZE_TEST as f32 / max_size as f32;
+            println!("RUST: scale: {}", scale);
             new_height_fl32 *= scale;
             new_width_fl32 *= scale;
+            println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
 
         new_height_fl32 += 0.5;
