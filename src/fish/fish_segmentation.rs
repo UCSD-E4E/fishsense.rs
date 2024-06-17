@@ -188,7 +188,23 @@ impl FishSegmentation {
         }
     }
 
-    fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<f32>, SegmentationError> {
+    fn pad_img(&self, img: &Array3<u8>) -> Array3<u8> {
+        let (height, width, _) = img.dim();
+
+        let mut pad_img = if height < width {
+            Array3::zeros((FishSegmentation::MIN_SIZE_TEST, FishSegmentation::MAX_SIZE_TEST, 3))
+        }
+        else {
+            Array3::zeros((FishSegmentation::MAX_SIZE_TEST, FishSegmentation::MIN_SIZE_TEST, 3))
+        };
+
+        let mut slice = pad_img.slice_mut(s![..height, ..width, ..]);
+        slice.assign(img);
+
+        pad_img
+    }
+
+    fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<u8>, SegmentationError> {
         let (height, width, _) = img.dim();
         println!("RUST: size: {}, {}", height, width);
 
@@ -212,9 +228,6 @@ impl FishSegmentation {
             new_width_fl32 = size;
         }
 
-        new_height_fl32 += 0.5;
-        new_width_fl32 += 0.5;
-
         let max_size: usize = max(new_height_fl32 as usize, new_width_fl32 as usize);
         println!("RUST: max_size: {}", max_size);
         if  max_size > FishSegmentation::MAX_SIZE_TEST {
@@ -225,6 +238,7 @@ impl FishSegmentation {
             new_width_fl32 *= scale;
             println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
+
         let new_height: usize = new_height_fl32 as usize;
         let new_width: usize = new_width_fl32 as usize;
 
@@ -236,7 +250,7 @@ impl FishSegmentation {
                     Ok(_) => {
                         let conversion_result: Result<Array3<u8>, _> = resized_img_cv.try_into_cv();
                         match conversion_result {
-                            Ok(resized_img) => Ok(resized_img.mapv(|v| v as f32)),
+                            Ok(resized_img) => Ok(resized_img),
                             Err(_) => {
                                 Err(SegmentationError::CVToNDArrayError)
                             }
@@ -430,14 +444,17 @@ impl FishSegmentation {
     pub fn inference(&self, img: &Array3<u8>) -> Result<Array2<u8>, SegmentationError> {
         let model = self.get_model()?;
         let resized_img = self.resize_img(&img)?;
+        let padded_img = self.pad_img(&resized_img).mapv(|v| v as f32);
 
         let (orig_height, orig_width, _) = img.dim();
         let (new_height, new_width, _) = resized_img.dim();
 
+        println!("RUST: resized_size: {}, {}", new_height, new_width);
+
         let width_scale = orig_width as f32 / new_width as f32;
         let height_scale = orig_height as f32 / new_height as f32;
 
-        match self.do_inference(&resized_img, model) {
+        match self.do_inference(&padded_img, model) {
             Ok(result) => {
                 let (boxes, masks, scores) = result;
                 let masks = self.convert_output_to_mask_and_polygons(&boxes, &masks, &scores, width_scale, height_scale, img.dim())?;
