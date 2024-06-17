@@ -190,6 +190,7 @@ impl FishSegmentation {
 
     fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<f32>, SegmentationError> {
         let (height, width, _) = img.dim();
+        println!("RUST: size: {}, {}", height, width);
 
         let size = FishSegmentation::MIN_SIZE_TEST as f32;
         let mut scale = size / min(height, width) as f32;
