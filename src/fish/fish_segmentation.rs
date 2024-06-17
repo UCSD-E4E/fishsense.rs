@@ -272,7 +272,9 @@ impl FishSegmentation {
         clone.swap_axes(2, 1);
         clone.swap_axes(1, 0);
 
+        println!("RUST: Before Run");
         let outputs = model.run(ort::inputs!["argument_1.1" => clone.view()]?)?;
+        println!("RUST: After Run");
 
         // boxes=tensor18, classes=pred_classes, masks=5232, scores=2339, img_size=onnx::Split_174
         let boxes = outputs["tensor18"].try_extract_tensor::<f32>()?.t().into_owned();
