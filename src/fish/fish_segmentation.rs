@@ -212,6 +212,9 @@ impl FishSegmentation {
             new_width_fl32 = size;
         }
 
+        new_height_fl32 += 0.5;
+        new_width_fl32 += 0.5;
+
         let max_size: usize = max(new_height_fl32 as usize, new_width_fl32 as usize);
         println!("RUST: max_size: {}", max_size);
         if  max_size > FishSegmentation::MAX_SIZE_TEST {
@@ -222,9 +225,6 @@ impl FishSegmentation {
             new_width_fl32 *= scale;
             println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
-
-        new_height_fl32 += 0.5;
-        new_width_fl32 += 0.5;
         let new_height: usize = new_height_fl32 as usize;
         let new_width: usize = new_width_fl32 as usize;
 
