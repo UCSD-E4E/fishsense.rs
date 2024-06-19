@@ -10,7 +10,7 @@ use ndarray::{s, Array2, Array3, ArrayBase, Axis, Dim, IxDynImpl, OwnedRepr};
 use opencv::core::{Mat, Point2i, Size, VectorToVec, CV_8UC1};
 use opencv::imgproc::{fill_poly, find_contours_with_hierarchy, resize_def, CHAIN_APPROX_NONE, LINE_8, RETR_CCOMP};
 use opencv::types::{VectorOfPoint, VectorOfVec4i, VectorOfVectorOfPoint};
-use ort::{GraphOptimizationLevel, Session};
+use ort::Session;
 use reqwest::blocking::get;
 use cv_convert::TryIntoCv;
 
@@ -64,7 +64,6 @@ impl Display for SegmentationError {
 pub struct FishSegmentation {
     model_path: PathBuf,
     model_set: bool,
-    model_optimization_level: GraphOptimizationLevel,
     model: Option<Session>,
 }
 
@@ -145,31 +144,23 @@ impl FishSegmentation {
         }
     }
 
-    pub fn from_web(model_optimization_level: GraphOptimizationLevel) -> Result<FishSegmentation, SegmentationError> {
+    pub fn from_web() -> Result<FishSegmentation, SegmentationError> {
         let model_path = FishSegmentation::download_model()?;
 
-        Ok(FishSegmentation::new(model_path, model_optimization_level))
+        Ok(FishSegmentation::new(model_path))
     }
 
-    pub fn new(model_path: PathBuf, model_optimization_level: GraphOptimizationLevel) -> FishSegmentation {
+    pub fn new(model_path: PathBuf) -> FishSegmentation {
         FishSegmentation {
             model_path,
             model_set: false,
-            model_optimization_level,
             model: None,
         }
     }
 
     fn create_model(&self) -> Result<Session, ort::Error> {
-        let opt_level = match self.model_optimization_level {
-            GraphOptimizationLevel::Disable => GraphOptimizationLevel::Disable,
-            GraphOptimizationLevel::Level1 => GraphOptimizationLevel::Level1,
-            GraphOptimizationLevel::Level2 => GraphOptimizationLevel::Level2,
-            GraphOptimizationLevel::Level3 => GraphOptimizationLevel::Level3
-        }; // Hack to get around the fact that GraphOptimizationLevel does not implement the Copy/Clone traits.
-
         Session::builder()?
-            .with_optimization_level(opt_level)?
+            .with_optimization_level(ort::GraphOptimizationLevel::Level3)?
             .with_intra_threads(4)?
             .commit_from_file(&self.model_path)
     }
@@ -502,7 +493,7 @@ mod tests {
         let img8: Array3<u8> = npz.by_name("img8").unwrap();
         let truth: Array2<i32> = npz.by_name("segmentations").unwrap();
         
-        let mut seg = FishSegmentation::from_web(GraphOptimizationLevel::Level3).unwrap();
+        let mut seg = FishSegmentation::from_web().unwrap();
         seg.load_model().unwrap();
         let segmentations = seg.inference(&img8).unwrap()
             .mapv(|v| v as i32);
