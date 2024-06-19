@@ -34,7 +34,7 @@ pub struct FishHeadTailDetector {
 }
 
 impl FishHeadTailDetector {
-    pub fn find_head_tail(mask: Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
+    pub fn find_head_tail(mask: &Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
         let nonzero: Array1<(i32, i32)> = mask
                 .indexed_iter()
                 .filter_map(|(index, &item)| if item != 0 {Some((index.0 as i32, index.1 as i32))} else { None })
@@ -244,7 +244,7 @@ mod tests {
     fn test() {
         let rust_img = image::io::Reader::open("./data/segmentations.png").unwrap().decode().unwrap().as_luma8().unwrap().clone();
         let mask: ArrayBase<OwnedRepr<u8>, Dim<[usize; 2]>> = Array2::from_shape_vec((rust_img.height() as usize, rust_img.width() as usize), rust_img.as_raw().clone()).unwrap();
-        let res = FishHeadTailDetector::find_head_tail(mask).unwrap();
+        let res = FishHeadTailDetector::find_head_tail(&mask).unwrap();
         assert_eq!(res, (array![1073, 1114], array![2317,1054]));
     }
 }
