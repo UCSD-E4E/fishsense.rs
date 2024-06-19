@@ -206,24 +206,17 @@ impl FishSegmentation {
 
     fn resize_img(&self, img: &Array3<u8>) -> Result<Array3<u8>, SegmentationError> {
         let (height, width, _) = img.dim();
-        println!("RUST: size: {}, {}", height, width);
 
         let size = FishSegmentation::MIN_SIZE_TEST as f32;
         let mut scale = size / min(height, width) as f32;
-        println!("RUST: scale: {}", scale);
 
         let mut new_height_fl32: f32;
         let mut new_width_fl32: f32;
         if height < width {
-            println!("RUST: height < width");
-
             new_height_fl32 = size;
             new_width_fl32 = scale * width as f32;
-
-            println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
         else {
-            println!("RUST: height >= width");
             new_height_fl32 = scale * height as f32;
             new_width_fl32 = size;
         }
@@ -232,14 +225,10 @@ impl FishSegmentation {
         new_width_fl32 = new_width_fl32.round();
 
         let max_size: usize = max(new_height_fl32 as usize, new_width_fl32 as usize);
-        println!("RUST: max_size: {}", max_size);
         if  max_size > FishSegmentation::MAX_SIZE_TEST {
-            println!("RUST: {} > {}", max_size, FishSegmentation::MAX_SIZE_TEST);
             scale = FishSegmentation::MAX_SIZE_TEST as f32 / max_size as f32;
-            println!("RUST: scale: {}", scale);
             new_height_fl32 *= scale;
             new_width_fl32 *= scale;
-            println!("RUST: {}, {}", new_height_fl32, new_width_fl32);
         }
 
         let new_height: usize = new_height_fl32 as usize;
@@ -271,23 +260,13 @@ impl FishSegmentation {
         let mut clone = img.clone();
         clone.swap_axes(2, 1);
         clone.swap_axes(1, 0);
-
-        println!("RUST: clone: {}, {}, {}", clone.shape()[0], clone.shape()[1], clone.shape()[2]);
-
-        println!("RUST: Before Run");
+        
         let outputs = model.run(ort::inputs!["argument_1.1" => clone.view()]?)?;
-        println!("RUST: After Run");
 
         // boxes=tensor18, classes=pred_classes, masks=5232, scores=2339, img_size=onnx::Split_174
-        println!("RUST: Before parsing results");
         let boxes = outputs["tensor18"].try_extract_tensor::<f32>()?.t().into_owned();
-        println!("RUST: Parsed tensor18");
         let masks = outputs["5232"].try_extract_tensor::<f32>()?.t().into_owned();
-        println!("RUST: Parsed 5232");
         let scores = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
-        println!("RUST: Parsed 2339");
-
-        println!("RUST: Parsed results.");
 
         Ok((boxes, masks, scores))
     }
@@ -461,8 +440,6 @@ impl FishSegmentation {
 
         let (orig_height, orig_width, _) = img.dim();
         let (new_height, new_width, _) = resized_img.dim();
-
-        println!("RUST: resized_size: {}, {}", new_height, new_width);
 
         let width_scale = orig_width as f32 / new_width as f32;
         let height_scale = orig_height as f32 / new_height as f32;
