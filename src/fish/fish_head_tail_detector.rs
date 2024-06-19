@@ -34,7 +34,7 @@ pub struct FishHeadTailDetector {
 }
 
 impl FishHeadTailDetector {
-    fn find_head_tail(mask: Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
+    pub fn find_head_tail(mask: Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
         let nonzero: Array1<(i32, i32)> = mask
                 .indexed_iter()
                 .filter_map(|(index, &item)| if item != 0 {Some((index.0 as i32, index.1 as i32))} else { None })
