@@ -160,7 +160,7 @@ impl FishSegmentation {
 
     fn create_model(&self) -> Result<Session, ort::Error> {
         Session::builder()?
-            .with_optimization_level(ort::GraphOptimizationLevel::Level3)?
+            .with_optimization_level(ort::GraphOptimizationLevel::Disable)?
             .with_intra_threads(4)?
             .commit_from_file(&self.model_path)
     }
