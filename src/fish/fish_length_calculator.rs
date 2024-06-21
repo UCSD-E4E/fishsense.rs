@@ -1,14 +1,14 @@
 use ndarray::{array, Array1, Array2};
 
-use crate::{linalg::norm, world_point_handlers::WorldPointHandler};
+use crate::{linalg::norm, WorldPointHandler};
 
-pub struct FishLengthCalculator<'world_point_handler> {
-    pub world_point_handler: &'world_point_handler dyn WorldPointHandler,
+pub struct FishLengthCalculator {
+    pub world_point_handler: WorldPointHandler,
     pub image_height: usize,
     pub image_width: usize
 }
 
-impl <'world_point_handler> FishLengthCalculator<'world_point_handler> {
+impl FishLengthCalculator {
     fn get_depth(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> f32 {
         println!("RUST: Start Get Coord Depth");
         let (height, width) = depth_mask.dim();
@@ -57,19 +57,18 @@ impl <'world_point_handler> FishLengthCalculator<'world_point_handler> {
 mod tests {
     use ndarray::array;
 
-    use crate::world_point_handlers::PixelPitchWorldPointHandler;
+    use crate::WorldPointHandler;
 
     use super::FishLengthCalculator;
 
     #[test]
     fn calculate_fish_length() {
         let depth_mask = array![[0.5355310460918119f32]];
+        let f_inv = 0.00035310983834631600505f32;
+        let camera_intrinsics_inverted = array![[f_inv, 0f32, 0f32], [0f32, f_inv, 0f32], [0f32, 0f32, 1f32]];
 
-        let pixel_pitch_mm = 0.0015;
-        let focal_length_mm = 4.247963447392709;
-        let world_point_handler = PixelPitchWorldPointHandler {
-            focal_length_mm,
-            pixel_pitch_mm
+        let world_point_handler = WorldPointHandler {
+            camera_intrinsics_inverted
         };
 
         let image_height = 3016;
@@ -77,13 +76,13 @@ mod tests {
         let fish_length_calcualtor = FishLengthCalculator {
             image_height,
             image_width,
-            world_point_handler: &world_point_handler
+            world_point_handler
         };
 
         let left = array![889.63158192f32, 336.58548892f32];
         let right = array![-355.36841808f32, 395.58548892f32];
         let fish_length = fish_length_calcualtor.calculate_fish_length(&depth_mask, &left, &right);
         
-        assert_eq!(fish_length, 0.23569568f32);
+        assert_eq!(fish_length, 0.23569532);
     }
 }
