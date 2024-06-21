@@ -10,7 +10,6 @@ pub struct FishLengthCalculator {
 
 impl FishLengthCalculator {
     fn get_depth(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> f32 {
-        println!("RUST: Start Get Coord Depth");
         let (height, width) = depth_mask.dim();
 
         let height_f32 = height as f32;
@@ -20,36 +19,17 @@ impl FishLengthCalculator {
         let coord_f32 = img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32];
 
         let coord = coord_f32.mapv(|v| v as usize);
-
-        println!("RUST: height, width: ({}, {}); coord: ({})", height, width, coord);
-        println!("RUST: img_height, img_width: ({}, {}); img_coord: ({})", self.image_height, self.image_width, img_coord);
-        let result = depth_mask[[coord[0], coord[1]]];
-
-        println!("RUST: End Get Coord Depth");
-
-        result
+        depth_mask[[coord[0], coord[1]]]
     }
 
     pub fn calculate_fish_length(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> f32 {
-        println!("RUST: Start Calculate Fish Length");
-
         let left_depth = self.get_depth(depth_mask, left_img_coord);
         let right_depth = self.get_depth(depth_mask, right_img_coord);
 
-        println!("RUST: ({}, {})", left_depth, right_depth);
-
-        println!("RUST: Start Calculate world point handler");
         let left_3d = self.world_point_handler.compute_world_point_from_depth(&left_img_coord, left_depth);
         let right_3d = self.world_point_handler.compute_world_point_from_depth(&right_img_coord, right_depth);
-        println!("RUST: End Calculate world point handler");
 
-        println!("RUST: left_3d: {}, right_3d: {}", left_3d, right_3d);
-
-        let result = norm(&(left_3d - right_3d));
-
-        println!("RUST: End Calculate Fish Length");
-
-        result
+        norm(&(left_3d - right_3d))
     }
 }
 
