@@ -3,8 +3,8 @@ use ndarray::{array, s, Array1, Array2};
 use super::WorldPointHandler;
 
 pub struct ViewMatrixWorldPointHandler {
-    camera_intrinsics_inverted: Array2<f32>,
-    view_matrix_inverted: Array2<f32>
+    pub camera_intrinsics_inverted: Array2<f32>,
+    pub view_matrix_inverted: Array2<f32>
 }
 
 impl WorldPointHandler for ViewMatrixWorldPointHandler {
