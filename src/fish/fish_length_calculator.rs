@@ -29,13 +29,13 @@ impl FishLengthCalculator {
         let right_coord_f32 = right_coord.mapv(|v| v as f32);
 
         let mut left_direction = &right_coord_f32 - &left_coord_f32;
-        left_direction /= norm(&left_direction);
+        left_direction /= norm(&left_direction) * 5f32;
 
         let mut right_direction = &left_coord_f32 - &right_coord_f32;
-        right_direction /= norm(&right_direction);
+        right_direction /= norm(&right_direction) * 5f32;
 
-        let left_step = (left_coord_f32 + &left_direction / array![left_direction[0], left_direction[1]]).mapv(|v| v as usize);
-        let right_step = (right_coord_f32 + &right_direction / array![right_direction[0], right_direction[1]]).mapv(|v| v as usize);
+        let left_step = (&left_direction / array![left_direction[0], left_direction[1]]).mapv(|v| v as usize);
+        let right_step = (&right_direction / array![right_direction[0], right_direction[1]]).mapv(|v| v as usize);
 
         println!("RUST: {} {} left depth: {}, step depth: {}", left_coord, left_step, depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[left_step[0], left_step[1]]]);
         println!("RUST: {} {} right depth: {}, step depth: {}", right_coord, right_step, depth_mask[[right_coord[0], right_coord[1]]], depth_mask[[right_step[0], right_step[1]]]);
