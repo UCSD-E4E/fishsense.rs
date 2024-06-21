@@ -1,14 +1,14 @@
 use ndarray::{array, Array1, Array2};
 
-use crate::{linalg::norm, world_point_handler::WorldPointHandler};
+use crate::{linalg::norm, world_point_handlers::WorldPointHandler};
 
-pub struct FishLengthCalculator {
-    pub world_point_handler: WorldPointHandler,
+pub struct FishLengthCalculator<'world_point_handler> {
+    pub world_point_handler: &'world_point_handler dyn WorldPointHandler,
     pub image_height: usize,
     pub image_width: usize
 }
 
-impl FishLengthCalculator {
+impl <'world_point_handler> FishLengthCalculator<'world_point_handler> {
     fn get_depth(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> f32 {
         let (height, width) = depth_mask.dim();
 
@@ -38,7 +38,7 @@ impl FishLengthCalculator {
 mod tests {
     use ndarray::array;
 
-    use crate::world_point_handler::WorldPointHandler;
+    use crate::world_point_handlers::PixelPitchWorldPointHandler;
 
     use super::FishLengthCalculator;
 
@@ -48,7 +48,7 @@ mod tests {
 
         let pixel_pitch_mm = 0.0015;
         let focal_length_mm = 4.247963447392709;
-        let world_point_handler = WorldPointHandler {
+        let world_point_handler = PixelPitchWorldPointHandler {
             focal_length_mm,
             pixel_pitch_mm
         };
@@ -58,7 +58,7 @@ mod tests {
         let fish_length_calcualtor = FishLengthCalculator {
             image_height,
             image_width,
-            world_point_handler
+            world_point_handler: &world_point_handler
         };
 
         let left = array![889.63158192f32, 336.58548892f32];

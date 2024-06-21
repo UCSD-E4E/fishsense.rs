@@ -2,18 +2,22 @@ use ndarray::{array, Array1};
 
 use crate::linalg::norm;
 
-pub struct WorldPointHandler {
+use super::WorldPointHandler;
+
+pub struct PixelPitchWorldPointHandler {
     pub focal_length_mm: f32,
     pub pixel_pitch_mm: f32
 }
 
-impl WorldPointHandler {
+impl PixelPitchWorldPointHandler {
     pub fn image_coordinate_to_projected_point(&self, image_coordinate: &Array1<f32>) -> Array1<f32> {
         let projected_point = image_coordinate * self.pixel_pitch_mm / 1e3;
         return array![projected_point[0], projected_point[1], -self.focal_length_mm / 1e3];
     }
+}
 
-    pub fn compute_world_point_from_depth(&self, image_coordinate: &Array1<f32>, depth: f32) -> Array1<f32> {
+impl WorldPointHandler for PixelPitchWorldPointHandler {
+    fn compute_world_point_from_depth(&self, image_coordinate: &Array1<f32>, depth: f32) -> Array1<f32> {
         let projected_point = self.image_coordinate_to_projected_point(image_coordinate);
         let v = -&projected_point / norm(&projected_point);
 
@@ -25,7 +29,9 @@ impl WorldPointHandler {
 mod tests {
     use ndarray::array;
 
-    use super::WorldPointHandler;
+    use crate::world_point_handlers::WorldPointHandler;
+
+    use super::PixelPitchWorldPointHandler;
 
     #[test]
     fn image_coordinate_to_projected_point() {
@@ -33,7 +39,7 @@ mod tests {
         let pixel_pitch_mm = 0.0015;
         let focal_length_mm = 4.247963447392709;
 
-        let world_point_handler = WorldPointHandler {
+        let world_point_handler = PixelPitchWorldPointHandler {
             focal_length_mm,
             pixel_pitch_mm
         };
@@ -48,7 +54,7 @@ mod tests {
         let pixel_pitch_mm = 0.0015;
         let focal_length_mm = 4.247963447392709;
 
-        let world_point_handler = WorldPointHandler {
+        let world_point_handler = PixelPitchWorldPointHandler {
             focal_length_mm,
             pixel_pitch_mm
         };
