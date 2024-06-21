@@ -43,6 +43,8 @@ impl <'world_point_handler> FishLengthCalculator<'world_point_handler> {
         let right_3d = self.world_point_handler.compute_world_point_from_depth(&right_img_coord, right_depth);
         println!("RUST: End Calculate world point handler");
 
+        println!("RUST: left_3d: {}, right_3d: {}", left_3d, right_3d);
+
         let result = norm(&(left_3d - right_3d));
 
         println!("RUST: End Calculate Fish Length");
