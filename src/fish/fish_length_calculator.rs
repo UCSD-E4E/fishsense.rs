@@ -9,7 +9,7 @@ pub struct FishLengthCalculator {
 }
 
 impl FishLengthCalculator {
-    fn get_depth(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> f32 {
+    fn get_depth_coord(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<usize> {
         let (height, width) = depth_mask.dim();
 
         let height_f32 = height as f32;
@@ -18,13 +18,30 @@ impl FishLengthCalculator {
         let img_width_f32 = self.image_width as f32;
         let coord_f32 = img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32];
 
-        let coord = coord_f32.mapv(|v| v as usize);
-        depth_mask[[coord[0], coord[1]]]
+        coord_f32.mapv(|v| v as usize)
+    }
+
+    fn get_depths(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
+        let left_coord = self.get_depth_coord(depth_mask, left_img_coord);
+        let right_coord = self.get_depth_coord(depth_mask, right_img_coord);
+
+        let mut left_direction = (&right_coord - &left_coord).mapv(|v| v as f32);
+        left_direction /= norm(&left_direction);
+
+        let mut right_direction = (&left_coord - &right_coord).mapv(|v| v as f32);
+        right_direction /= norm(&right_direction);
+
+        let left_step = (&left_direction / array![left_direction[0], left_direction[1]]).mapv(|v| v as usize);
+        let right_step = (&right_direction / array![right_direction[0], right_direction[1]]).mapv(|v| v as usize);
+
+        println!("RUST: left depth: {}, step depth: {}", depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[left_step[0], left_step[1]]]);
+        println!("RUST: right depth: {}, step depth: {}", depth_mask[[right_coord[0], right_coord[1]]], depth_mask[[right_step[0], right_step[1]]]);
+
+        (depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[right_coord[0], right_coord[1]]])
     }
 
     pub fn calculate_fish_length(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> f32 {
-        let left_depth = self.get_depth(depth_mask, left_img_coord);
-        let right_depth = self.get_depth(depth_mask, right_img_coord);
+        let (left_depth, right_depth) = self.get_depths(depth_mask, left_img_coord, right_img_coord);
 
         let left_3d = self.world_point_handler.compute_world_point_from_depth(&left_img_coord, left_depth);
         let right_3d = self.world_point_handler.compute_world_point_from_depth(&right_img_coord, right_depth);
