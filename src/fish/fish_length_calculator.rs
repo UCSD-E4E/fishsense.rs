@@ -22,6 +22,7 @@ impl <'world_point_handler> FishLengthCalculator<'world_point_handler> {
         let coord = coord_f32.mapv(|v| v as usize);
 
         println!("RUST: height, width: ({}, {}); coord: ({})", height, width, coord);
+        println!("RUST: img_height, img_width: ({}, {}); img_coord: ({})", self.image_height, self.image_width, img_coord);
         let result = depth_mask[[coord[0], coord[1]]];
 
         println!("RUST: End Get Coord Depth");
