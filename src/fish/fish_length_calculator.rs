@@ -9,19 +9,19 @@ pub struct FishLengthCalculator {
 }
 
 impl FishLengthCalculator {
-    fn get_depth_at_coord(&self, depth_mask: &Array2<f32>, coord: &Array1<f32>) -> f32 {
+    fn get_depth_at_coord(&self, depth_map: &Array2<f32>, coord: &Array1<f32>) -> f32 {
         let coord_usize = coord.map(|v| v.to_owned() as usize);
 
-        depth_mask[[coord_usize[0], coord_usize[1]]]
+        depth_map[[coord_usize[0], coord_usize[1]]]
     }
 
-    fn walk(&self, depth_mask: &Array2<f32>, mid_point: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> Array1<usize> {
+    fn walk(&self, depth_map: &Array2<f32>, mid_point: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> Array1<usize> {
         let mut coord = mid_point.clone();
-        let mut depth = self.get_depth_at_coord(depth_mask, &coord);
+        let mut depth = self.get_depth_at_coord(depth_map, &coord);
         let mut prev_depth = depth.clone();
 
         while (depth - prev_depth).abs() < 0.001 {
-            prev_depth = depth;
+            prev_depth = depth.clone();
             coord += direction;
 
             if coord[0] >= stopping_point[0] || coord[1] >= stopping_point[1] {
@@ -29,15 +29,15 @@ impl FishLengthCalculator {
                 break
             }
 
-            depth = self.get_depth_at_coord(depth_mask, &coord);
+            depth = self.get_depth_at_coord(depth_map, &coord);
         }
         println!("RUST: depth: {}, prev_depth: {}", depth, prev_depth);
 
         coord.mapv(|v| v as usize)
     }
 
-    fn get_depth_coord(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<f32> {
-        let (height, width) = depth_mask.dim();
+    fn get_depth_coord(&self, depth_map: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<f32> {
+        let (height, width) = depth_map.dim();
 
         let height_f32 = height as f32;
         let width_f32 = width as f32;
@@ -47,9 +47,9 @@ impl FishLengthCalculator {
         img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32]
     }
 
-    fn get_depths(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
-        let left_coord = self.get_depth_coord(depth_mask, left_img_coord);
-        let right_coord = self.get_depth_coord(depth_mask, right_img_coord);
+    fn get_depths(&self, depth_map: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
+        let left_coord = self.get_depth_coord(depth_map, left_img_coord);
+        let right_coord = self.get_depth_coord(depth_map, right_img_coord);
 
         let mid_point = &right_coord + (&right_coord - &left_coord) / 2f32;
 
@@ -59,14 +59,14 @@ impl FishLengthCalculator {
         let mut right_direction = &right_coord - &left_coord;
         right_direction /= norm(&right_direction);
 
-        let left_coord = self.walk(depth_mask, &mid_point, &left_direction, &left_coord);
-        let right_coord = self.walk(depth_mask, &mid_point, &right_direction, &right_coord);
+        let left_coord = self.walk(depth_map, &mid_point, &left_direction, &left_coord);
+        let right_coord = self.walk(depth_map, &mid_point, &right_direction, &right_coord);
 
-        (depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[right_coord[0], right_coord[1]]])
+        (depth_map[[left_coord[0], left_coord[1]]], depth_map[[right_coord[0], right_coord[1]]])
     }
 
-    pub fn calculate_fish_length(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> f32 {
-        let (left_depth, right_depth) = self.get_depths(depth_mask, left_img_coord, right_img_coord);
+    pub fn calculate_fish_length(&self, depth_map: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> f32 {
+        let (left_depth, right_depth) = self.get_depths(depth_map, left_img_coord, right_img_coord);
 
         let left_3d = self.world_point_handler.compute_world_point_from_depth(&left_img_coord, left_depth);
         let right_3d = self.world_point_handler.compute_world_point_from_depth(&right_img_coord, right_depth);
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn calculate_fish_length() {
-        let depth_mask = array![[0.5355310460918119f32]];
+        let depth_map = array![[0.5355310460918119f32]];
         let f_inv = 0.00035310983834631600505f32;
         let camera_intrinsics_inverted = array![[f_inv, 0f32, 0f32], [0f32, f_inv, 0f32], [0f32, 0f32, 1f32]];
 
@@ -103,7 +103,7 @@ mod tests {
 
         let left = array![889.63158192f32, 336.58548892f32];
         let right = array![-355.36841808f32, 395.58548892f32];
-        let fish_length = fish_length_calcualtor.calculate_fish_length(&depth_mask, &left, &right);
+        let fish_length = fish_length_calcualtor.calculate_fish_length(&depth_map, &left, &right);
         
         assert_eq!(fish_length, 0.23569532);
     }
