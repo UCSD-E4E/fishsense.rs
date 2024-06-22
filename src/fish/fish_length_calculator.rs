@@ -16,7 +16,7 @@ impl FishLengthCalculator {
     }
 
     fn has_passed_stopping_point_scalar(&self, coord: f32, direction: f32, stopping_point: f32) -> bool {
-        if direction < -1f32 {
+        if direction == -1f32 {
             coord <= stopping_point
         }
         else {
