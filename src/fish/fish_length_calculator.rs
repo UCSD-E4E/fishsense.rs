@@ -34,7 +34,7 @@ impl FishLengthCalculator {
         let mut depth = self.get_depth_at_coord(depth_map, &coord);
         let mut prev_depth = depth.clone();
 
-        while (depth - prev_depth).abs() < 0.001 {
+        while (depth - prev_depth).abs() < 0.005 {
             prev_depth = depth.clone();
             coord += direction;
 
