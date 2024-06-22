@@ -1,4 +1,5 @@
 use ndarray::{array, Array1, Array2};
+use num::complex::ComplexFloat;
 
 use crate::{linalg::norm, WorldPointHandler};
 
@@ -9,6 +10,12 @@ pub struct FishLengthCalculator {
 }
 
 impl FishLengthCalculator {
+    fn get_depth(&self, depth_map: &Array2<f32>, depth_coord: &Array1<f32>) -> f32 {
+        let depth_coord = depth_coord.mapv(|v| v as usize);
+
+        depth_map[[depth_coord[0], depth_coord[1]]]
+    }
+
     fn get_depth_coord(&self, depth_map: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<f32> {
         let (height, width) = depth_map.dim();
 
@@ -20,13 +27,30 @@ impl FishLengthCalculator {
         img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32]
     }
 
+    fn snap_depth_coord(&self, depth_map: &Array2<f32>, depth_coord: &Array1<f32>, mid_coord: &Array1<f32>) -> Array1<usize> {
+        let dir = (mid_coord - depth_coord) / norm(&(mid_coord - depth_coord));
+        let mut coord = mid_coord.clone();
+        let mut depth = self.get_depth(depth_map, &coord);
+        let mut previous_depth = depth.clone();
+
+        while (depth - previous_depth).abs() < 0.005 {
+            previous_depth = depth.clone();
+            
+            coord += &dir;
+            depth = self.get_depth(depth_map, &coord);
+        }
+        coord -= &dir;
+
+        coord.mapv(|v| v as usize)
+    }
+
     fn get_depths(&self, depth_map: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
         let left_coord_f32 = self.get_depth_coord(depth_map, left_img_coord);
         let right_coord_f32 = self.get_depth_coord(depth_map, right_img_coord);
 
         let mid_coord_f32 = &left_coord_f32 + (&right_coord_f32 - &left_coord_f32) / 2f32;
 
-        let left_coord = left_coord_f32.mapv(|v| v as usize);
+        let left_coord = self.snap_depth_coord(depth_map, &left_coord_f32, &mid_coord_f32);
         let right_coord = right_coord_f32.mapv(|v| v as usize);
 
         let mid_coord = mid_coord_f32.mapv(|v| v as usize);
