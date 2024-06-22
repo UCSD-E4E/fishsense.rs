@@ -1,5 +1,4 @@
 use ndarray::{array, Array1, Array2};
-use num::complex::ComplexFloat;
 
 use crate::{linalg::norm, WorldPointHandler};
 
@@ -45,6 +44,7 @@ impl FishLengthCalculator {
 
             if coord[0] <= 0f32 || coord[0] >= height || coord[1] <= 0f32 || coord[1] >= width {
                 failed = true;
+                break;
             }
 
             depth = self.get_depth(depth_map, &coord);
