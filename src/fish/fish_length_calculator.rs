@@ -51,7 +51,7 @@ impl FishLengthCalculator {
         let mid_coord_f32 = &left_coord_f32 + (&right_coord_f32 - &left_coord_f32) / 2f32;
 
         let left_coord = self.snap_depth_coord(depth_map, &left_coord_f32, &mid_coord_f32);
-        let right_coord = right_coord_f32.mapv(|v| v as usize);
+        let right_coord = self.snap_depth_coord(depth_map, &right_coord_f32, &mid_coord_f32);
 
         let mid_coord = mid_coord_f32.mapv(|v| v as usize);
 
