@@ -15,6 +15,20 @@ impl FishLengthCalculator {
         depth_map[[coord_usize[0], coord_usize[1]]]
     }
 
+    fn has_passed_stopping_point_scalar(&self, coord: f32, direction: f32, stopping_point: f32) -> bool {
+        if direction < -1f32 {
+            coord <= stopping_point
+        }
+        else {
+            coord >= stopping_point
+        }
+    }
+
+    fn has_passed_stopping_point(&self, coord: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> bool {
+        self.has_passed_stopping_point_scalar(coord[0], direction[0], stopping_point[0]) &&
+            self.has_passed_stopping_point_scalar(coord[1], direction[1], stopping_point[1])
+    }
+
     fn walk(&self, depth_map: &Array2<f32>, mid_point: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> Array1<usize> {
         let mut coord = mid_point.clone();
         let mut depth = self.get_depth_at_coord(depth_map, &coord);
@@ -24,7 +38,7 @@ impl FishLengthCalculator {
             prev_depth = depth.clone();
             coord += direction;
 
-            if coord[0] >= stopping_point[0] || coord[1] >= stopping_point[1] {
+            if self.has_passed_stopping_point(&coord, direction, stopping_point) {
                 coord = stopping_point.clone();
                 break
             }
