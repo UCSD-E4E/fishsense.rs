@@ -9,47 +9,6 @@ pub struct FishLengthCalculator {
 }
 
 impl FishLengthCalculator {
-    fn get_depth_at_coord(&self, depth_map: &Array2<f32>, coord: &Array1<f32>) -> f32 {
-        let coord_usize = coord.map(|v| v.to_owned() as usize);
-
-        depth_map[[coord_usize[0], coord_usize[1]]]
-    }
-
-    fn has_passed_stopping_point_scalar(&self, coord: f32, direction: f32, stopping_point: f32) -> bool {
-        if direction == -1f32 {
-            coord <= stopping_point
-        }
-        else {
-            coord >= stopping_point
-        }
-    }
-
-    fn has_passed_stopping_point(&self, coord: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> bool {
-        self.has_passed_stopping_point_scalar(coord[0], direction[0], stopping_point[0]) &&
-            self.has_passed_stopping_point_scalar(coord[1], direction[1], stopping_point[1])
-    }
-
-    fn walk(&self, depth_map: &Array2<f32>, mid_point: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> Array1<usize> {
-        let mut coord = mid_point.clone();
-        let mut depth = self.get_depth_at_coord(depth_map, &coord);
-        let mut prev_depth = depth.clone();
-
-        while (depth - prev_depth).abs() < 0.005 {
-            prev_depth = depth.clone();
-            coord += direction;
-
-            if self.has_passed_stopping_point(&coord, direction, stopping_point) {
-                coord = stopping_point.clone();
-                break
-            }
-
-            depth = self.get_depth_at_coord(depth_map, &coord);
-        }
-        println!("RUST: depth: {}, prev_depth: {}", depth, prev_depth);
-
-        coord.mapv(|v| v as usize)
-    }
-
     fn get_depth_coord(&self, depth_map: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<f32> {
         let (height, width) = depth_map.dim();
 
@@ -62,19 +21,22 @@ impl FishLengthCalculator {
     }
 
     fn get_depths(&self, depth_map: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
-        let left_coord = self.get_depth_coord(depth_map, left_img_coord);
-        let right_coord = self.get_depth_coord(depth_map, right_img_coord);
+        let left_coord_f32 = self.get_depth_coord(depth_map, left_img_coord);
+        let right_coord_f32 = self.get_depth_coord(depth_map, right_img_coord);
 
-        let mid_point = &right_coord + (&right_coord - &left_coord) / 2f32;
+        let mid_coord_f32 = &left_coord_f32 + (&right_coord_f32 - &left_coord_f32) / 2f32;
 
-        let mut left_direction = &right_coord - &left_coord;
-        left_direction /= norm(&left_direction);
+        let left_coord = left_coord_f32.mapv(|v| v as usize);
+        let right_coord = right_coord_f32.mapv(|v| v as usize);
 
-        let mut right_direction = &right_coord - &left_coord;
-        right_direction /= norm(&right_direction);
+        let mid_coord = mid_coord_f32.mapv(|v| v as usize);
 
-        let left_coord = self.walk(depth_map, &mid_point, &left_direction, &left_coord);
-        let right_coord = self.walk(depth_map, &mid_point, &right_direction, &right_coord);
+        let left_depth = depth_map[[left_coord[0], left_coord[1]]];
+        let right_depth = depth_map[[right_coord[0], right_coord[1]]];
+
+        let mid_depth = depth_map[[mid_coord[0], mid_coord[1]]];
+
+        println!("RUST: {}, {}, {}", left_depth, right_depth, mid_depth);
 
         (depth_map[[left_coord[0], left_coord[1]]], depth_map[[right_coord[0], right_coord[1]]])
     }
