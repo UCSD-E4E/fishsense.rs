@@ -9,38 +9,58 @@ pub struct FishLengthCalculator {
 }
 
 impl FishLengthCalculator {
-    fn get_depth_coord(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<usize> {
+    fn get_depth_at_coord(&self, depth_mask: &Array2<f32>, coord: &Array1<f32>) -> f32 {
+        let coord_usize = coord.map(|v| v.to_owned() as usize);
+
+        depth_mask[[coord_usize[0], coord_usize[1]]]
+    }
+
+    fn walk(&self, depth_mask: &Array2<f32>, mid_point: &Array1<f32>, direction: &Array1<f32>, stopping_point: &Array1<f32>) -> Array1<usize> {
+        let mut coord = mid_point.clone();
+        let mut depth = self.get_depth_at_coord(depth_mask, &coord);
+        let mut prev_depth = depth.clone();
+
+        while (depth - prev_depth).abs() < 0.001 {
+            prev_depth = depth;
+            coord += direction;
+
+            if coord[0] >= stopping_point[0] || coord[1] >= stopping_point[1] {
+                coord = stopping_point.clone();
+                break
+            }
+
+            depth = self.get_depth_at_coord(depth_mask, &coord);
+        }
+        println!("RUST: depth: {}, prev_depth: {}", depth, prev_depth);
+
+        coord.mapv(|v| v as usize)
+    }
+
+    fn get_depth_coord(&self, depth_mask: &Array2<f32>, img_coord: &Array1<f32>) -> Array1<f32> {
         let (height, width) = depth_mask.dim();
 
         let height_f32 = height as f32;
         let width_f32 = width as f32;
         let img_height_f32 = self.image_height as f32;
         let img_width_f32 = self.image_width as f32;
-        let coord_f32 = img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32];
 
-        coord_f32.mapv(|v| v as usize)
+        img_coord / array![img_height_f32, img_width_f32] * array![height_f32, width_f32]
     }
 
     fn get_depths(&self, depth_mask: &Array2<f32>, left_img_coord: &Array1<f32>, right_img_coord: &Array1<f32>) -> (f32, f32) {
         let left_coord = self.get_depth_coord(depth_mask, left_img_coord);
         let right_coord = self.get_depth_coord(depth_mask, right_img_coord);
 
-        let left_coord_f32 = left_coord.mapv(|v| v as f32);
-        let right_coord_f32 = right_coord.mapv(|v| v as f32);
+        let mid_point = &right_coord + (&right_coord - &left_coord) / 2f32;
 
-        let mut left_direction = &right_coord_f32 - &left_coord_f32;
+        let mut left_direction = &right_coord - &left_coord;
         left_direction /= norm(&left_direction);
-        let left_step = left_direction.mapv(|v| v.round());
 
-        let mut right_direction = &left_coord_f32 - &right_coord_f32;
+        let mut right_direction = &right_coord - &left_coord;
         right_direction /= norm(&right_direction);
-        let right_step = right_direction.mapv(|v| v.round());
 
-        let left_new = (&left_step + left_coord_f32).mapv(|v| v as usize);
-        let right_new = (&right_step + right_coord_f32).mapv(|v| v as usize);
-
-        println!("RUST: {} {} left depth: {}, step depth: {}", left_coord, left_step, depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[left_new[0], left_new[1]]]);
-        println!("RUST: {} {} right depth: {}, step depth: {}", right_coord, right_step, depth_mask[[right_coord[0], right_coord[1]]], depth_mask[[right_new[0], right_new[1]]]);
+        let left_coord = self.walk(depth_mask, &mid_point, &left_direction, &left_coord);
+        let right_coord = self.walk(depth_mask, &mid_point, &right_direction, &right_coord);
 
         (depth_mask[[left_coord[0], left_coord[1]]], depth_mask[[right_coord[0], right_coord[1]]])
     }
