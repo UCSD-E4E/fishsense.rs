@@ -28,18 +28,32 @@ impl FishLengthCalculator {
     }
 
     fn snap_depth_coord(&self, depth_map: &Array2<f32>, depth_coord: &Array1<f32>, mid_coord: &Array1<f32>) -> Array1<usize> {
+        let (height, width) = depth_map.dim();
+        let height = height as f32;
+        let width = width as f32;
+
         let dir = (mid_coord - depth_coord) / norm(&(mid_coord - depth_coord));
         let mut coord = mid_coord.clone();
         let mut depth = self.get_depth(depth_map, &coord);
         let mut previous_depth = depth.clone();
 
+        let mut failed = false;
         while (depth - previous_depth).abs() < 0.005 {
             previous_depth = depth.clone();
             
             coord += &dir;
+
+            if coord[0] <= 0f32 || coord[0] >= height || coord[1] <= 0f32 || coord[1] >= width {
+                failed = true;
+            }
+
             depth = self.get_depth(depth_map, &coord);
         }
         coord -= &dir;
+
+        if failed {
+            coord = depth_coord.clone();
+        }
 
         coord.mapv(|v| v as usize)
     }
