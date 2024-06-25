@@ -263,10 +263,10 @@ impl FishSegmentation {
         
         let outputs = model.run(ort::inputs!["argument_1.1" => clone.view()]?)?;
 
-        // boxes=tensor18, classes=pred_classes, masks=5280, scores=2353, img_size=onnx::Split_36
+        // boxes=tensor18, classes=pred_classes, masks=5232, scores=2339, img_size=onnx::Split_174
         let boxes = outputs["tensor18"].try_extract_tensor::<f32>()?.t().into_owned();
-        let masks = outputs["5280"].try_extract_tensor::<f32>()?.t().into_owned();
-        let scores = outputs["2353"].try_extract_tensor::<f32>()?.t().into_owned();
+        let masks = outputs["5232"].try_extract_tensor::<f32>()?.t().into_owned();
+        let scores = outputs["2339"].try_extract_tensor::<f32>()?.t().into_owned();
 
         Ok((boxes, masks, scores))
     }
