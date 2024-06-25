@@ -451,7 +451,14 @@ impl FishSegmentation {
 
                 Ok(masks)
             }
-            Err(error) => Err(SegmentationError::OrtErr(error))
+            Err(error) => {
+                match error {
+                    ort::Error::SessionRun(_) => { // Hack to work around a bug in our onnx model which causes crashes when no fish are found.
+                        Ok(Array2::<u8>::zeros((orig_height, orig_width)))
+                    },
+                    other => Err(SegmentationError::OrtErr(other))
+                }
+            }
         }
     }
 }
