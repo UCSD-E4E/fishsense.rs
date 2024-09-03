@@ -8,11 +8,11 @@ edition = "2021"
 [dependencies]
 app_dirs2 = "2.5.5"
 bytes = "1.6.0"
-cv-convert = { git = "https://github.com/ccrutchf/rust-cv-convert.git", version = "0.25.0", default-features = false, features = ["opencv_0-91", "ndarray_0-15"] }
+cv-convert = { git = "https://github.com/ccrutchf/rust-cv-convert.git", version = "0.25.0", default-features = false, features = ["opencv_0-91", "ndarray_0-15"], rev = "1ac6ea2b50f0b78da3f35207a54eaa9e8a9c1226" }
 image = "0.25.1"
 ndarray = "0.15.6"
 opencv = { version = "0.91.3", features = ["clang-runtime"]}
-ort = "2.0.0-rc.2"
+ort = { git = "https://github.com/pykeio/ort.git", version = "2.0.0-rc.2", tag = "v2.0.0-rc.2" }
 reqwest = {version = "0.12.4", features = ["blocking"]}
 ndarray-stats = { git = "https://github.com/ccrutchf/ndarray-stats.git", version = "0.5.1" }
 faer = "0.18.2"
