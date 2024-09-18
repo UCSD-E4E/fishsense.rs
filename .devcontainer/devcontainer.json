@@ -1,8 +1,9 @@
 {
-	"image": "ghcr.io/ucsd-e4e/fishsense-docker-dev:main",
-	"features": {
-		"ghcr.io/devcontainers/features/docker-in-docker:2": {}
-	},
+	"build": { "dockerfile": "Dockerfile" },
+	"runArgs": [
+		"--device",
+		"nvidia.com/gpu=all"
+	],
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -10,7 +11,8 @@
 				"vadimcn.vscode-lldb",
 				"eamodio.gitlens",
 				"VisualStudioExptTeam.vscodeintellicode",
-				"github.vscode-github-actions"
+				"github.vscode-github-actions",
+				"ms-azuretools.vscode-docker"
 			]
 		}
 	}
