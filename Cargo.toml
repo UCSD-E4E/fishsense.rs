@@ -17,6 +17,9 @@ reqwest = {version = "0.12.4", features = ["blocking"]}
 ndarray-stats = { git = "https://github.com/ccrutchf/ndarray-stats.git", version = "0.5.1" }
 faer = "0.18.2"
 num = "0.4.3"
+rayon = "1.7"
+nalgebra = { version = "0.33", features = ["alloc"] }
+
 
 [dev-dependencies]
 ndarray-npy = "0.8.1"
