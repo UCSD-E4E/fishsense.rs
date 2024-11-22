@@ -1,10 +1,10 @@
 use std::{cmp::Ordering, fmt::Display};
 use faer::Mat;
-use ndarray::{array, s, stack, Array1, Array2, ArrayBase, Axis, Dim, OwnedRepr};
-use ndarray_stats::{errors::EmptyInput, CorrelationExt};
-use nalgebra::DMatrix;
 use num::Complex;
 use image::{GrayImage, Luma};
+use ndarray::{Array1, Array2, Axis, s, array};
+use nalgebra::{DMatrix, Matrix2, Vector2};
+use ndarray_stats::{errors::EmptyInput, CorrelationExt};
 
 #[derive(Debug)]
 pub enum HeadTailError {
@@ -32,131 +32,145 @@ pub struct FishHeadTailDetector;
 
 impl FishHeadTailDetector {
     pub fn find_head_tail(mask: &Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
-        // Nonzero pixels from mask
-        let nonzero: Array1<(i32, i32)> = mask
+        // Extract non-zero pixel indices
+        let nonzero: Vec<(usize, usize)> = mask
             .indexed_iter()
-            .filter_map(|(index, &item)| if item != 0 { Some((index.0 as i32, index.1 as i32)) } else { None })
+            .filter_map(|((y, x), &val)| if val != 0 { Some((y, x)) } else { None })
             .collect();
 
-        let mut y = Array1::default(nonzero.len());
-        let mut x = Array1::default(nonzero.len());
-
-        for i in 0..nonzero.len() {
-            y[i] = nonzero[i].0;
-            x[i] = nonzero[i].1;
+        if nonzero.is_empty() {
+            return Err(HeadTailError::MinError);
         }
 
-        // Compute min/max coordinates for cropping
-        let x_min = min(&x)? as usize;
-        let y_min = min(&y)? as usize;
-        let x_max = max(&x)? as usize;
-        let y_max = max(&y)? as usize;
+        let y_coords: Array1<usize> = nonzero.iter().map(|&(y, _)| y).collect();
+        let x_coords: Array1<usize> = nonzero.iter().map(|&(_, x)| x).collect();
 
-        let mask_crop: ArrayBase<ndarray::ViewRepr<&u8>, Dim<[usize; 2]>> = mask.slice(s![y_min..y_max, x_min..x_max]);
+        // Compute bounding box for cropping
+        let y_min = min(&y_coords)?;
+        let y_max = max(&y_coords)?;
+        let x_min = min(&x_coords)?;
+        let x_max = max(&x_coords)?;
 
-        // Recalculate non-zero indices after cropping
-        let nonzero_inds: Array1<(i32, i32)> = mask_crop
+        let mask_crop = mask.slice(s![y_min..=y_max, x_min..=x_max]);
+
+        // Recalculate non-zero indices within the cropped mask
+        let cropped_nonzero: Vec<(usize, usize)> = mask_crop
             .indexed_iter()
-            .filter_map(|(index, &item)| if item != 0 { Some((index.0 as i32, index.1 as i32)) } else { None })
+            .filter_map(|((y, x), &val)| if val != 0 { Some((y, x)) } else { None })
             .collect();
 
-        let mut y = Array1::default(nonzero_inds.len());
-        let mut x = Array1::default(nonzero_inds.len());
-
-        for i in 0..nonzero_inds.len() {
-            y[i] = nonzero_inds[i].0;
-            x[i] = nonzero_inds[i].1;
+        if cropped_nonzero.is_empty() {
+            return Err(HeadTailError::MinError);
         }
 
-        // Centering the Data
-        let x_mean = (x.iter().map(|&val| val as i64).sum::<i64>() as f64) / (x.len() as f64);
-        let y_mean = (y.iter().map(|&val| val as i64).sum::<i64>() as f64) / (y.len() as f64);
+        // Center coordinates
+        let cropped_y: Vec<f64> = cropped_nonzero.iter().map(|&(y, _)| y as f64).collect();
+        let cropped_x: Vec<f64> = cropped_nonzero.iter().map(|&(_, x)| x as f64).collect();
 
-        let new_x: Array1<f64> = x.iter().map(|&xi| xi as f64 - x_mean).collect();
-        let new_y: Array1<f64> = y.iter().map(|&yi| yi as f64 - y_mean).collect();
+        let x_mean = mean(&cropped_x);
+        let y_mean = mean(&cropped_y);
 
-        let x_min = new_x.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        let y_min = new_y.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-        
-        // Covariance Matrix Calculation
-        let coords: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>> = stack![Axis(0), new_x, new_y];
-        let cov = match CorrelationExt::cov(&coords, 1.0) {
-            Ok(matrix) => Ok(matrix),
-            Err(error) => Err(HeadTailError::COVError(error)),
-        }?;
+        let centered_coords: Vec<Vector2<f64>> = cropped_x
+            .iter()
+            .zip(&cropped_y)
+            .map(|(&x, &y)| Vector2::new(x - x_mean, y - y_mean))
+            .collect();
 
-        // Convert ndarray covariance matrix to nalgebra's DMatrix
-        let cov_shape = cov.shape();
-        let rows = cov_shape[0];
-        let cols = cov_shape[1];
-        let cov_matrix = DMatrix::from_vec(rows, cols, cov.as_slice().unwrap().to_vec());
+        // Calculate covariance matrix
+        let covariance_matrix = compute_covariance(&centered_coords)?;
 
-        // Eigenvalue Decomposition
-        let eigen = nalgebra::linalg::SymmetricEigen::new(cov_matrix);
-        let eigenvalues = eigen.eigenvalues;
-        let eigenvectors = eigen.eigenvectors;
+        let eig = covariance_matrix.symmetric_eigen();
+        let principal_eigenvector = eig.eigenvectors.column(0);
 
-        // Select eigenvector corresponding to the largest eigenvalue
-        let mut sort_indices = argsort_by(&eigenvalues.iter().map(|x| *x).collect::<Vec<_>>(), cmp_f64);
-        sort_indices.reverse();
-        let principal_eigenvector = eigenvectors.column(sort_indices[0]);
+        let scale = ((mask_crop.nrows().max(mask_crop.ncols())) as f64) * 2.0;
+        let scaled_vector = principal_eigenvector * scale;
 
-        let scale = mask_crop.shape()[0].max(mask_crop.shape()[1]) as f64;
-        let (x_v, y_v) = (principal_eigenvector[0], principal_eigenvector[1]);
-        let head = array![x_mean + x_v * scale, y_mean + y_v * scale];
-        let tail = array![x_mean - x_v * scale, y_mean - y_v * scale];
+        let coord1 = Vector2::new(
+            -scaled_vector[0] + x_mean,
+            -scaled_vector[1] + y_mean,
+        );
+        let coord2 = Vector2::new(
+            scaled_vector[0] + x_mean,
+            scaled_vector[1] + y_mean,
+        );
 
-        Ok((head.mapv(|v| v as usize), tail.mapv(|v| v as usize)))
+        println!("{}, {}", coord1, coord2);
+
+        let m = principal_eigenvector[1] / principal_eigenvector[0];
+        let b = coord1[1] - m * coord1[0];
+
+        let mut y_target: Array1<f64> = Array1::default(cropped_x.len());
+        for i in 0..cropped_x.len() {
+            y_target[i] = m * cropped_x[i] + b;
+        }
+
+        let mut y_abs_diff: Vec<usize> = Vec::new();
+        for (i, &val) in cropped_y.iter().enumerate() {
+            if (val - y_target[i]).abs() < 1.0 {
+                y_abs_diff.push(i);
+            }
+        }
+
+        let mut new_x: Array1<usize> = Array1::default(y_abs_diff.len());
+        let mut new_y: Array1<usize> = Array1::default(y_abs_diff.len());
+        for (i, &idx) in y_abs_diff.iter().enumerate() {
+            new_x[i] = cropped_nonzero[idx].1;
+            new_y[i] = cropped_nonzero[idx].0;
+        }
+
+        let arg_min = new_x
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, &val)| val)
+            .map(|(idx, _)| idx)
+            .ok_or(HeadTailError::MinError)?;
+
+        let arg_max = new_x
+            .iter()
+            .enumerate()
+            .max_by_key(|&(_, &val)| val)
+            .map(|(idx, _)| idx)
+            .ok_or(HeadTailError::MaxError)?;
+
+        let left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
+        let right_coord = array![new_x[arg_max] + x_min, new_y[arg_max] + y_min];
+
+        Ok((left_coord, right_coord))
 
     }
 }
 
-fn argsort_by<T, F>(data: &[T], mut compare: F) -> Vec<usize>
-where
-    F: FnMut(&T, &T) -> std::cmp::Ordering,
-{
-    let mut indices = (0..data.len()).collect::<Vec<_>>();
-    indices.sort_by(|&i, &j| compare(&data[i], &data[j]));
-    indices
-}
-
-fn cmp_f64(a: &f64, b: &f64) -> Ordering {
-    if a.is_nan() {
-        return Ordering::Greater;
-    }
-    if b.is_nan() {
-        return Ordering::Less;
-    }
-    if a < b {
-        Ordering::Less
-    } else if a > b {
-        Ordering::Greater
-    } else {
-        Ordering::Equal
-    }
+fn mean(data: &[f64]) -> f64 {
+    data.iter().sum::<f64>() / data.len() as f64
 }
 
 fn min<T: Ord + Copy>(array: &Array1<T>) -> Result<T, HeadTailError> {
-    match (*array).iter().min() {
-        None => Err(HeadTailError::MinError),
-        Some(t) => Ok(*t),
-    }
+    array
+        .iter()
+        .copied()
+        .min()
+        .ok_or(HeadTailError::MinError)
 }
 
 fn max<T: Ord + Copy>(array: &Array1<T>) -> Result<T, HeadTailError> {
-    match (*array).iter().max() {
-        None => Err(HeadTailError::MaxError),
-        Some(t) => Ok(*t),
-    }
+    array
+        .iter()
+        .copied()
+        .max()
+        .ok_or(HeadTailError::MaxError)
 }
 
-fn get(array: &ArrayBase<OwnedRepr<usize>, Dim<[usize; 2]>>, index: (usize, usize)) -> Result<usize, HeadTailError> {
-    match array.get(index) {
-        None => Err(HeadTailError::OOBError),
-        Some(coord) => Ok(*coord)
-    }
-}
+fn compute_covariance(coords: &[Vector2<f64>]) -> Result<Matrix2<f64>, HeadTailError> {
+    let n = coords.len() as f64;
 
+    let sum_xx = coords.iter().map(|v| v[0] * v[0]).sum::<f64>();
+    let sum_xy = coords.iter().map(|v| v[0] * v[1]).sum::<f64>();
+    let sum_yy = coords.iter().map(|v| v[1] * v[1]).sum::<f64>();
+
+    let covariance_matrix = Matrix2::new(sum_xx / n, sum_xy / n, sum_xy / n, sum_yy / n);
+
+    Ok(covariance_matrix)
+}
 
 // Test function
 #[cfg(test)]
