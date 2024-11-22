@@ -193,7 +193,27 @@ mod tests {
         draw_dot(&mut rust_img, head[0] as i32, head[1] as i32, 10, Luma([125u8]));
         draw_dot(&mut rust_img, tail[0] as i32, tail[1] as i32, 10, Luma([200u8]));
 
-        rust_img.save("./data/processed_image.png").unwrap();
+        rust_img.save("./data/fish_processed.png").unwrap();
+        assert_eq!(head, array![140, 487]);
+        assert_eq!(tail, array![1873, 406]);
+    }
+    #[test]
+    fn test_tail_correction() {
+        let mut rust_img = image::ImageReader::open("./data/fish_tail.png").unwrap().decode().unwrap().to_luma8();
+        let mask: Array2<u8> = Array2::from_shape_vec(
+            (rust_img.height() as usize, rust_img.width() as usize),
+            rust_img.as_raw().clone(),
+        )
+        .unwrap();
+
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mask).unwrap();
+        println!("{}", head);
+        println!("{}", tail);
+
+        draw_dot(&mut rust_img, head[0] as i32, head[1] as i32, 10, Luma([125u8]));
+        draw_dot(&mut rust_img, tail[0] as i32, tail[1] as i32, 10, Luma([200u8]));
+
+        rust_img.save("./data/fish_tail_processed.png").unwrap();
         assert_eq!(head, array![140, 487]);
         assert_eq!(tail, array![1873, 406]);
     }
