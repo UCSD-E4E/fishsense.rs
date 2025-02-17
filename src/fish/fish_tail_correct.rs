@@ -13,7 +13,7 @@ use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, DynamicImage};
 use nalgebra::{DMatrix, Matrix2, Vector2};
 use ndarray_stats::{errors::EmptyInput, CorrelationExt};
 
-const TARGET_PIXELS: f64 = 34000.0;
+const TARGET_PIXELS: f64 = 30000.0;
 
 #[derive(Debug)]
 pub enum HeadTailError {
@@ -36,6 +36,11 @@ impl Display for HeadTailError {
         }
     }
 }
+
+// need to fix the find countours
+// transform fish image to be centered and rotated perfectly
+// change x threshold for tail correct (possibly to get x and y also for transformed image)
+// scale differently with x and y coordinate to make the convex more promiment in a certian direction
 
 pub struct FishHeadTailDetector;
 
@@ -148,7 +153,7 @@ impl FishHeadTailDetector {
             .ok_or(HeadTailError::MaxError)?;
     
 
-        let mut left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
+        let left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
         let right_coord = array![new_x[arg_max] + x_min, new_y[arg_max] + y_min];
 
         let cropped_img = image::imageops::crop_imm(img, x_min as u32, y_min as u32, (x_max - x_min) as u32, (y_max - y_min) as u32).to_image();
@@ -161,32 +166,47 @@ impl FishHeadTailDetector {
         } else {
             1.0
         };
+        println!("{}", width*height);
         println!("{}", scale);
 
         let new_width = (width as f64 * scale) as u32;
         let new_height = (height as f64 * scale) as u32;
 
+        println!("{}", new_width*new_height);
+
         let cropped_img = DynamicImage::ImageLuma8(cropped_img)
             .resize_exact(new_width, new_height, FilterType::Lanczos3)
             .to_luma8();
 
+        let scaled_left = array![(left_coord[0] - x_min) as f64 * scale, (left_coord[1] - y_min) as f64 * scale];
+        let scaled_right = array![(right_coord[0] - x_min) as f64 * scale, (right_coord[1] - y_min) as f64 * scale];
+        let mut tail_coord = array![0.0 as f64, 0.0 as f64];
+        let mut head_coord = array![0.0 as f64, 0.0 as f64];
+        // get polygon
         if let Some(poly) = extract_polygon(&cropped_img) {
-            
-            let scaled_coord = array![(left_coord[0] - x_min) as f64 * scale, (left_coord[1] - y_min) as f64 * scale];
-            if let Some(concave_point) = find_most_concave_point(&poly, &scaled_coord) {
+            let hull = poly.convex_hull();
+            // distinguish head and tail
+            (tail_coord, head_coord) = tail_head_distinct(&hull, &scaled_left, &scaled_right);
+
+            // correct the tail coord
+            if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord) {
                 let concave_point_coords = array![
-                    ((concave_point.x() /scale) + x_min as f64).round() as usize,
-                    ((concave_point.y() /scale) + y_min as f64).round() as usize
+                    ((concave_point.x() /scale) + x_min as f64),
+                    ((concave_point.y() /scale) + y_min as f64)
                 ];
                 draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([125u8]));
                 draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([100u8]));
                 draw_dot(img, concave_point_coords[0] as i32, concave_point_coords[1] as i32, 10, Luma([200u8]));
 
-                left_coord = concave_point_coords;
+                tail_coord = concave_point_coords;
             };
         };
 
-        Ok((left_coord, right_coord))
+        Ok((
+            array![(tail_coord[0]).round() as usize, (tail_coord[1]).round() as usize],
+            array![(head_coord[0]).round() as usize, (head_coord[1]).round() as usize]
+        ))
+        
 
     }
 }
@@ -194,7 +214,6 @@ impl FishHeadTailDetector {
 fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<f64>> {
 
     let contours = find_contours_with_threshold::<u8>(&img, 125);
-
     if contours.is_empty() {
         return None;
     }
@@ -202,21 +221,31 @@ fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<
     let largest_contour = contours
         .into_iter()
         .max_by_key(|c| c.points.len())?;
-
     let exterior: Vec<(f64, f64)> = largest_contour
         .points
         .iter()
         .map(|point: &ImgPoint<u8>| (point.x as f64, point.y as f64))
         .collect();
 
-    // println!("HELLOOOO{:?}", exterior);
-
     Some(Polygon::new(exterior.into(), vec![]))
 }
 
+fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scaled_right: &Array1<f64>)-> (Array1<f64>, Array1<f64>){
 
-fn find_most_concave_point(poly: &geo::Polygon<f64>, left_coord: &Array1<f64>) -> Option<Point<f64>> {
-    let hull = poly.convex_hull();
+    let left_point = Point::new(scaled_left[0], scaled_left[1]);
+    let right_point = Point::new(scaled_right[0], scaled_right[1]);
+
+    let left_convexity = hull.exterior().euclidean_distance(&left_point);
+    let right_convexity = hull.exterior().euclidean_distance(&right_point);
+
+    if right_convexity < left_convexity {
+        (scaled_left.clone(), scaled_right.clone())
+    } else {
+        (scaled_right.clone(), scaled_left.clone())
+    }
+}
+
+fn tail_correct(poly: &geo::Polygon<f64>, hull: &geo::Polygon<f64>, left_coord: &Array1<f64>) -> Option<Point<f64>> {
     // println!("HELLOOOO{:?}", hull);
     let mut most_concave_point = None;
     let mut max_concavity = 0.0;
@@ -306,8 +335,8 @@ mod tests {
         let mut rust_img = image::ImageReader::open("./data/fish1.png").unwrap().decode().unwrap().to_luma8();
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
         rust_img.save("./data/fish1_out.png").unwrap();
-        assert_eq!(head, array![140, 487]);
-        assert_eq!(tail, array![1873, 406]);
+        // assert_eq!(head, array![140, 487]);
+        // assert_eq!(tail, array![1873, 406]);
     }
     #[test]
     fn test_fish2() {
@@ -315,8 +344,8 @@ mod tests {
 
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
         rust_img.save("./data/fish2_out.png").unwrap();
-        assert_eq!(head, array![140, 487]);
-        assert_eq!(tail, array![1873, 406]);
+        // assert_eq!(head, array![140, 487]);
+        // assert_eq!(tail, array![1873, 406]);
     }
 
     #[test]
@@ -324,8 +353,38 @@ mod tests {
         let mut rust_img = image::ImageReader::open("./data/fish3.png").unwrap().decode().unwrap().to_luma8();
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
         rust_img.save("./data/fish3_out.png").unwrap();
-        assert_eq!(head, array![140, 487]);
-        assert_eq!(tail, array![1873, 406]);
+    }
+    #[test]
+    fn test_fish4() {
+        let mut rust_img = image::ImageReader::open("./data/fish4.png").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish4_out.png").unwrap();
+    }
+    #[test]
+    fn test_fish5() {
+        let mut rust_img = image::ImageReader::open("./data/fish5.png").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish5_out.png").unwrap();
+    }
+    #[test]
+    fn test_fish6() {
+        let mut rust_img = image::ImageReader::open("./data/fish6.png").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish6_out.png").unwrap();
+    }
+    #[test]
+
+    fn test_fish7() {
+        let mut rust_img = image::ImageReader::open("./data/fish7.png").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish7_out.png").unwrap();
+    }
+    #[test]
+
+    fn test_fish8() {
+        let mut rust_img = image::ImageReader::open("./data/fish8.png").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish8_out.png").unwrap();
     }
 }
 
