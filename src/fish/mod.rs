@@ -1,5 +1,5 @@
 mod fish_segmentation;
-mod fish_head_tail_detector;
+// mod fish_head_tail_detector;
 mod fish_length_calculator;
 mod fish_tail_correct;
 
