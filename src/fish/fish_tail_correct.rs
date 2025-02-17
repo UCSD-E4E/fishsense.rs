@@ -1,10 +1,19 @@
+use geo::{EuclideanDistance, CoordsIter, LineString, Point, polygon, Polygon};
+use geo::algorithm::{ConvexHull, Distance};
+use imageproc::contours::{find_contours_with_threshold, Contour};
+use imageproc::point::Point as ImgPoint;
+
+use ndarray::{Array1, ArrayBase, Dim, OwnedRepr};
+use ndarray::prelude::*;
+
 use std::{cmp::Ordering, fmt::Display};
 use faer::Mat;
 use num::Complex;
-use image::{GrayImage, Luma};
-use ndarray::{Array1, Array2, Axis, s, array};
+use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, DynamicImage};
 use nalgebra::{DMatrix, Matrix2, Vector2};
 use ndarray_stats::{errors::EmptyInput, CorrelationExt};
+
+const SCALE: u32 = 8;
 
 #[derive(Debug)]
 pub enum HeadTailError {
@@ -31,7 +40,13 @@ impl Display for HeadTailError {
 pub struct FishHeadTailDetector;
 
 impl FishHeadTailDetector {
-    pub fn find_head_tail(mask: &Array2<u8>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
+    pub fn find_head_tail(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<(Array1<usize>, Array1<usize>), HeadTailError> {
+        let mask: Array2<u8> = Array2::from_shape_vec(
+            (img.height() as usize, img.width() as usize),
+            img.as_raw().clone(),
+        )
+        .unwrap();
+
         // Extract non-zero pixel indices
         let nonzero: Vec<(usize, usize)> = mask
             .indexed_iter()
@@ -131,14 +146,132 @@ impl FishHeadTailDetector {
             .max_by_key(|&(_, &val)| val)
             .map(|(idx, _)| idx)
             .ok_or(HeadTailError::MaxError)?;
+    
 
-        let left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
+        let mut left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
         let right_coord = array![new_x[arg_max] + x_min, new_y[arg_max] + y_min];
+
+        if let Some(poly) = extract_polygon(&img) {
+            if let Some(concave_point) = find_most_concave_point(&poly, &left_coord) {
+                let concave_point_coords = array![
+                    (concave_point.x() * SCALE as f64).round() as usize,
+                    (concave_point.y() * SCALE as f64).round() as usize
+                ];
+                left_coord = concave_point_coords;
+            };
+        };
 
         Ok((left_coord, right_coord))
 
     }
 }
+
+fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<f64>> {
+    let (width, height) = img.dimensions();
+    
+    let new_width = width / SCALE;
+    let new_height = height / SCALE;
+
+    let resized_img = DynamicImage::ImageLuma8(img.clone())
+        .resize_exact(new_width, new_height, FilterType::Lanczos3)
+        .to_luma8();
+
+    let contours = find_contours_with_threshold::<u8>(&resized_img, 1);
+
+    if contours.is_empty() {
+        return None;
+    }
+
+    let largest_contour = contours
+        .into_iter()
+        .max_by_key(|c| c.points.len())?;
+
+    let exterior: Vec<(f64, f64)> = largest_contour
+        .points
+        .iter()
+        .map(|point: &ImgPoint<u8>| (point.x as f64, point.y as f64))
+        .collect();
+
+    // println!("HELLOOOO{:?}", exterior);
+
+    Some(Polygon::new(exterior.into(), vec![]))
+}
+
+// fn find_most_concave_point(poly: &geo::Polygon<f64>, left_coord: &Array1<usize>) -> Option<Point<f64>> {
+//     let hull = poly.convex_hull(); // Compute the convex hull of the shape
+//     let mut most_concave_point = None;
+//     let mut max_distance = 0.0;
+
+//     let left_coord_x = left_coord[0] as f64; // Extract the x-coordinate of left_coord
+//     let leftmost_polygon_x = poly.exterior().coords_iter().map(|c| c.x).fold(f64::INFINITY, f64::min); 
+
+//     for point in poly.exterior().coords_iter() {
+//         let p = Point::new(point.x, point.y);
+//         let distance_to_hull = hull.exterior().euclidean_distance(&p); // Calculate concavity measure
+
+//         // Ensure the point is on the leftmost side by checking against both left_coord and the polygon's leftmost x
+//         if point.x <= left_coord_x && point.x <= leftmost_polygon_x {
+//             if distance_to_hull > max_distance { // Maximize concavity only among left-side candidates
+//                 max_distance = distance_to_hull;
+//                 most_concave_point = Some(p);
+//             }
+//         }
+//     }
+
+//     most_concave_point
+// }
+
+fn find_most_concave_point(poly: &geo::Polygon<f64>, left_coord: &Array1<usize>) -> Option<Point<f64>> {
+    let hull = poly.convex_hull();  // Get convex hull
+    println!("HELLOOOO{:?}", hull);
+    let mut most_concave_point = None;
+    let mut max_concavity = 0.0;
+
+    let left_x = left_coord[0] as u32 / SCALE;
+    let left_y = left_coord[1] as u32 / SCALE;
+
+    // Define a search range around left_coord (U-shape region)
+    let search_radius = 10; // Adjust based on expected curvature
+    let min_x = (left_x - search_radius) as f64;
+    let max_x = (left_x + search_radius) as f64;
+
+    for point in poly.exterior().coords_iter() {
+        let p = Point::new(point.x, point.y);
+        let distance_to_hull = hull.exterior().euclidean_distance(&p); // Measure concavity
+
+        if point.x >= min_x && point.x <= max_x {
+            if distance_to_hull > max_concavity {
+                max_concavity = distance_to_hull;
+                most_concave_point = Some(p);
+            }
+        }
+    }
+
+    most_concave_point
+}
+
+
+
+// fn find_most_concave_point(poly: &geo::Polygon<f64>) -> Option<Point<f64>> {
+//     let hull = poly.convex_hull();  // Convex hull of the polygon
+
+//     let mut most_concave_point = None;
+//     let mut max_distance = 0.0;
+
+//     for point in poly.exterior().coords_iter() {
+//         let p = Point::new(point.x, point.y);
+//         let distance = hull.exterior().euclidean_distance(&p);  // Calculate distance to hull
+
+//         if distance > max_distance {
+//             max_distance = distance;
+//             most_concave_point = Some(p);
+//         }
+//     }
+
+//     most_concave_point
+// }
+
+
 
 fn mean(data: &[f64]) -> f64 {
     data.iter().sum::<f64>() / data.len() as f64
@@ -178,40 +311,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fish1() {
+    fn test_fish1_new() {
         let mut rust_img = image::ImageReader::open("./data/fish1.png").unwrap().decode().unwrap().to_luma8();
-        let mask: Array2<u8> = Array2::from_shape_vec(
-            (rust_img.height() as usize, rust_img.width() as usize),
-            rust_img.as_raw().clone(),
-        )
-        .unwrap();
-
-        let (head, tail) = FishHeadTailDetector::find_head_tail(&mask).unwrap();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&rust_img).unwrap();
 
         draw_dot(&mut rust_img, head[0] as i32, head[1] as i32, 10, Luma([125u8]));
         draw_dot(&mut rust_img, tail[0] as i32, tail[1] as i32, 10, Luma([200u8]));
 
-        rust_img.save("./data/fish1_out.png").unwrap();
+        rust_img.save("./data/fish1_out_new.png").unwrap();
         assert_eq!(head, array![140, 487]);
         assert_eq!(tail, array![1873, 406]);
     }
     #[test]
-    fn test_fish2() {
+    fn test_fish2_new() {
         let mut rust_img = image::ImageReader::open("./data/fish2.png").unwrap().decode().unwrap().to_luma8();
-        let mask: Array2<u8> = Array2::from_shape_vec(
-            (rust_img.height() as usize, rust_img.width() as usize),
-            rust_img.as_raw().clone(),
-        )
-        .unwrap();
 
-        let (head, tail) = FishHeadTailDetector::find_head_tail(&mask).unwrap();
-        println!("{}", head);
-        println!("{}", tail);
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&rust_img).unwrap();
+        // println!("{}", head);
+        // println!("{}", tail);
 
         draw_dot(&mut rust_img, head[0] as i32, head[1] as i32, 10, Luma([125u8]));
         draw_dot(&mut rust_img, tail[0] as i32, tail[1] as i32, 10, Luma([200u8]));
 
-        rust_img.save("./data/fish2_out.png").unwrap();
+        rust_img.save("./data/fish2_out_new.png").unwrap();
         assert_eq!(head, array![140, 487]);
         assert_eq!(tail, array![1873, 406]);
     }

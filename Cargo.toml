@@ -20,6 +20,9 @@ num = "0.4.3"
 rayon = "1.7"
 nalgebra = { version = "0.33", features = ["alloc"] }
 
+# for tail correct
+geo = "0.29.2"
+imageproc = "0.25"
 
 [dev-dependencies]
 ndarray-npy = "0.8.1"
