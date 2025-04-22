@@ -13,7 +13,8 @@ use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, DynamicImage};
 use nalgebra::{DMatrix, Matrix2, Vector2};
 use ndarray_stats::{errors::EmptyInput, CorrelationExt};
 
-const TARGET_PIXELS: f64 = 30000.0;
+// const TARGET_PIXELS: f64 = 30000.0;
+const TARGET_PIXELS: f64 = 20000.0;
 
 #[derive(Debug)]
 pub enum HeadTailError {
@@ -37,10 +38,11 @@ impl Display for HeadTailError {
     }
 }
 
-// need to fix the find countours
+// need to fix the find countours method to work with higher target pixels
 // transform fish image to be centered and rotated perfectly
 // change x threshold for tail correct (possibly to get x and y also for transformed image)
 // scale differently with x and y coordinate to make the convex more promiment in a certian direction
+// work with concave tails and ensure head vs tail distinguish works
 
 pub struct FishHeadTailDetector;
 
@@ -253,7 +255,7 @@ fn tail_correct(poly: &geo::Polygon<f64>, hull: &geo::Polygon<f64>, left_coord: 
     let left_x = left_coord[0];
     let left_y = left_coord[1];
 
-    let search_radius = 15.0; // THRESHOLD
+    let search_radius = 10.0; // THRESHOLD
     let min_x = left_x - search_radius;
     let max_x = left_x + search_radius;
 
