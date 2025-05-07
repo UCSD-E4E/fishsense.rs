@@ -1,5 +1,5 @@
-use geo::{EuclideanDistance, CoordsIter, Point, Polygon};
-use geo::algorithm::{ConvexHull, Distance};
+use geo::{EuclideanDistance, Line, CoordsIter, Point, Polygon};
+use geo::algorithm::{ConvexHull, Distance, BoundingRect};
 use imageproc::contours::find_contours_with_threshold;
 use imageproc::point::Point as ImgPoint;
 use ndarray::linalg::Dot;
@@ -41,15 +41,9 @@ impl Display for HeadTailError {
 
 // draw contours
 // smoothing?
-// head correction
-// change radius threshold for tail correct (better way to do this?)
 
 // optional: use original python head tail distinct process with polygon differences
 // optional: work with concave tails and ensure head vs tail distinguish works
-
-// fix: need to fix the find countours method to work with higher target pixels
-// optional: transform fish image to be centered and rotated perfectly (not sure if needed with radius)
-
 
 pub struct FishHeadTailDetector;
 
@@ -118,10 +112,10 @@ impl FishHeadTailDetector {
             -scaled_vector[0] + x_mean,
             -scaled_vector[1] + y_mean,
         );
-        let coord2 = Vector2::new(
-            scaled_vector[0] + x_mean,
-            scaled_vector[1] + y_mean,
-        );
+        // let coord2 = Vector2::new(
+        //     scaled_vector[0] + x_mean,
+        //     scaled_vector[1] + y_mean,
+        // );
 
         // println!("{}, {}", coord1, coord2);
 
@@ -193,31 +187,37 @@ impl FishHeadTailDetector {
             // distinguish head and tail
             (tail_coord, head_coord) = tail_head_distinct(&hull, &scaled_left, &scaled_right);
 
+            // ab for head correct
+            let ab = Vector2::new(
+                head_coord[0] - tail_coord[0],
+                head_coord[1] - tail_coord[1],
+            );
+            let ab_perp = Vector2::new(-ab.y, ab.x);
+
+            let search_radius = ab.norm()*0.10;
+
             // correct the tail coord
-            if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord) {
-                let concave_point_coords = array![
+            if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
+
+                tail_coord = array![
                     ((concave_point.x() /scale) + x_min as f64),
                     ((concave_point.y() /scale) + y_min as f64)
                 ];
 
-                draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([125u8]));
-                draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([100u8]));
-                draw_dot(img, concave_point_coords[0] as i32, concave_point_coords[1] as i32, 10, Luma([200u8]));
-                
-                
-                let testing = array![
-                    ((concave_point.x()) as f64),
-                    ((concave_point.y()) as f64)
-                ];
-                let og_vec = &head_coord - &tail_coord;
-                let corr_vec = &head_coord - &testing;
-                let similarity = cosine_similarity(&og_vec, &corr_vec);
-
-                println!("Cosine similarity: {}", similarity);
-
-
-                tail_coord = concave_point_coords;
+                draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([200u8]));
+                draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([200u8]));
+                draw_dot(img, tail_coord[0] as i32, tail_coord[1] as i32, 10, Luma([100u8]));
             };
+
+            if let Some(correct_head) = head_correct(&hull, &head_coord, &ab, &ab_perp) {
+                head_coord = array![
+                    (correct_head.x() / scale) + x_min as f64,
+                    (correct_head.y() / scale) + y_min as f64
+                ];
+                draw_dot(img, head_coord[0] as i32, head_coord[1] as i32, 10, Luma([50u8]));
+
+            };
+
         };
 
         Ok((
@@ -263,42 +263,17 @@ fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scale
     }
 }
 
-// fn tail_correct(poly: &geo::Polygon<f64>, hull: &geo::Polygon<f64>, left_coord: &Array1<f64>) -> Option<Point<f64>> {
-//     // println!("HELLOOOO{:?}", hull);
-//     let mut most_concave_point = None;
-//     let mut max_concavity = 0.0;
-
-//     let left_x = left_coord[0];
-//     let left_y = left_coord[1];
-
-//     let search_radius = 10.0; // THRESHOLD
-//     let min_x = left_x - search_radius;
-//     let max_x = left_x + search_radius;
-
-//     for point in poly.exterior().coords_iter() {
-//         let p = Point::new(point.x, point.y);
-//         let distance_to_hull = hull.exterior().euclidean_distance(&p);
-
-//         if point.x >= min_x && point.x <= max_x {
-//             if distance_to_hull > max_concavity {
-//                 max_concavity = distance_to_hull;
-//                 most_concave_point = Some(p);
-//             }
-//         }
-//     }
-//     most_concave_point
-// }
-
 fn tail_correct(
     poly: &geo::Polygon<f64>,
     hull: &geo::Polygon<f64>,
-    left_coord: &Array1<f64>
+    left_coord: &Array1<f64>,
+    search_radius: f64
 ) -> Option<Point<f64>> {
     let mut most_concave_point = None;
     let mut max_concavity = 0.0;
 
     let left_point = Point::new(left_coord[0], left_coord[1]);
-    let search_radius = 20.0; // Static radius
+    // let search_radius = 20.0; // Static radius
 
     let coords: Vec<_> = poly.exterior().coords_iter().collect();
     let n = coords.len();
@@ -331,25 +306,49 @@ fn tail_correct(
     most_concave_point
 }
 
+fn head_correct(
+    hull: &geo::Polygon<f64>,
+    head_coord: &Array1<f64>,
+    ab: &Vector2<f64>,
+    ab_perp: &Vector2<f64>
+) -> Option<Point<f64>> {
 
-// fn find_most_concave_point(poly: &geo::Polygon<f64>) -> Option<Point<f64>> {
-//     let hull = poly.convex_hull();
+    // ab_perp to line centered at the head
+    let p1 = Point::new(
+        head_coord[0] - ab_perp[0],
+        head_coord[1] - ab_perp[1],
+    );
+    let p2 = Point::new(
+        head_coord[0] + ab_perp[0],
+        head_coord[1] + ab_perp[1],
+    );
+    let perp_line = Line::new(p1, p2);
 
-//     let mut most_concave_point = None;
-//     let mut max_distance = 0.0;
+    // dir vector from tail to head
+    let ab_dir = ab.normalize();
 
-//     for point in poly.exterior().coords_iter() {
-//         let p = Point::new(point.x, point.y);
-//         let distance = hull.exterior().euclidean_distance(&p);
+    let mut max_dist = -1.0;
+    let mut best_point = Some(Point::new(head_coord[0], head_coord[1]));
 
-//         if distance > max_distance {
-//             max_distance = distance;
-//             most_concave_point = Some(p);
-//         }
-//     }
+    for point in hull.exterior().points_iter() {
+        let vec_to_point = Vector2::new(point.x() - head_coord[0], point.y() - head_coord[1]);
+        let projection = vec_to_point.dot(&ab_dir);
 
-//     most_concave_point
-// }
+        // skip points that lie in the neg dir of ab
+        if -1.0*projection > 0.0 {
+            continue;
+        }
+
+        let dist = perp_line.euclidean_distance(&point);
+        if dist > max_dist {
+            max_dist = dist;
+            best_point = Some(point);
+        }
+    }
+    println!("{:?}", best_point);
+
+    best_point
+}
 
 
 fn mean(data: &[f64]) -> f64 {
