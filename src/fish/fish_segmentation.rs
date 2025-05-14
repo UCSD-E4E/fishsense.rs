@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::fs::{File, create_dir};
 use std::io::{Cursor, copy};
 use std::path::PathBuf;
+use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, DynamicImage};
 
 use app_dirs2::{AppDataType, AppInfo, app_root};
 use bytes::Bytes;
@@ -483,5 +484,37 @@ mod tests {
             .mapv(|v| v as i32);
 
         assert_eq!(segmentations.mean_abs_err(&truth).unwrap() < 2.0e-6, true);
+    }
+
+        #[test]
+    fn inference1() {
+            
+        let input_path = "./data/test1.jpeg";
+        let output_path = "./data/test1_seg.jpeg";
+
+        let img = image::ImageReader::open(input_path).unwrap().decode().unwrap().to_rgb8();
+        let (width, height) = img.dimensions();
+
+        let img_array: Array3<u8> = Array3::from_shape_fn((height as usize, width as usize, 3), |(y, x, c)| {
+            img.get_pixel(x as u32, y as u32)[c]
+        });
+
+        let mut seg = FishSegmentation::from_web().unwrap();
+        seg.load_model().unwrap();
+        let segmentations: Array2<i32> = seg.inference(&img_array).unwrap().mapv(|v| v as i32);
+
+
+        let mut output = GrayImage::new(width, height);
+        let mut sum = 0;
+
+        for ((y, x), value) in segmentations.indexed_iter() {
+            let val = if *value > 0 { 255 } else { 0 };
+            sum += *value;
+            output.put_pixel(x as u32, y as u32, Luma([val]));
+        }
+        output.save(output_path).unwrap();
+
+        assert_eq!((sum >=1), true);
+
     }
 }

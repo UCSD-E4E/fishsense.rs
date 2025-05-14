@@ -194,7 +194,7 @@ impl FishHeadTailDetector {
             );
             let ab_perp = Vector2::new(-ab.y, ab.x);
 
-            let search_radius = ab.norm()*0.10;
+            let search_radius = ab.norm()*0.09;
 
             // correct the tail coord
             if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
@@ -345,7 +345,6 @@ fn head_correct(
             best_point = Some(point);
         }
     }
-    println!("{:?}", best_point);
 
     best_point
 }
@@ -457,6 +456,14 @@ mod tests {
         let mut rust_img = image::ImageReader::open("./data/fish8.png").unwrap().decode().unwrap().to_luma8();
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
         rust_img.save("./data/fish8_out.png").unwrap();
+    }
+    #[test]
+
+    fn test_fish9() {
+        println!("fish8");
+        let mut rust_img = image::ImageReader::open("./data/test1_seg.jpeg").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/test1_out.png").unwrap();
     }
 }
 
