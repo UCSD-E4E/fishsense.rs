@@ -1,4 +1,5 @@
-use geo::{EuclideanDistance, Line, CoordsIter, Point, Polygon};
+use geo::{EuclideanDistance, Line, CoordsIter, Point, Polygon, LineString, Area, Coord};
+
 use geo::algorithm::{ConvexHull, Distance, BoundingRect};
 use imageproc::contours::find_contours_with_threshold;
 use imageproc::point::Point as ImgPoint;
@@ -159,6 +160,9 @@ impl FishHeadTailDetector {
         let left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
         let right_coord = array![new_x[arg_max] + x_min, new_y[arg_max] + y_min];
 
+        draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([200u8]));
+        draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([200u8]));
+
         let cropped_img = image::imageops::crop_imm(img, x_min as u32, y_min as u32, (x_max - x_min) as u32, (y_max - y_min) as u32).to_image();
 
         let (width, height) = cropped_img.dimensions();
@@ -184,8 +188,15 @@ impl FishHeadTailDetector {
         // get polygon
         if let Some(poly) = extract_polygon(&cropped_img) {
             let hull = poly.convex_hull();
+            let ab = Vector2::new(
+                scaled_right[0] - scaled_left[0],
+                scaled_right[1] - scaled_left[1],
+            );
+            let ab_perp = Vector2::new(-ab.y, ab.x);
+
+
             // distinguish head and tail
-            (tail_coord, head_coord) = tail_head_distinct(&hull, &scaled_left, &scaled_right);
+            (tail_coord, head_coord) = tail_head_distinct(&cropped_img, &scaled_left, &scaled_right, &ab_perp);
 
             // ab for head correct
             let ab = Vector2::new(
@@ -196,6 +207,12 @@ impl FishHeadTailDetector {
 
             let search_radius = ab.norm()*0.09;
 
+            // let midpoint = array![
+            // (((tail_coord[0] + head_coord[0]) /scale) + 2.0*x_min as f64)/ 2.0,
+            // (((tail_coord[1] + head_coord[1]) /scale) + 2.0*y_min as f64 )/ 2.0
+            // ];
+            // draw_dot(img, midpoint[0].round() as i32, midpoint[1].round() as i32, 10, Luma([180u8]));
+
             // correct the tail coord
             if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
 
@@ -204,8 +221,6 @@ impl FishHeadTailDetector {
                     ((concave_point.y() /scale) + y_min as f64)
                 ];
 
-                draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([200u8]));
-                draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([200u8]));
                 draw_dot(img, tail_coord[0] as i32, tail_coord[1] as i32, 10, Luma([100u8]));
             };
 
@@ -248,20 +263,72 @@ fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<
     Some(Polygon::new(exterior.into(), vec![]))
 }
 
-fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scaled_right: &Array1<f64>)-> (Array1<f64>, Array1<f64>){
+// fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scaled_right: &Array1<f64>)-> (Array1<f64>, Array1<f64>){
 
-    let left_point = Point::new(scaled_left[0], scaled_left[1]);
-    let right_point = Point::new(scaled_right[0], scaled_right[1]);
+//     let left_point = Point::new(scaled_left[0], scaled_left[1]);
+//     let right_point = Point::new(scaled_right[0], scaled_right[1]);
 
-    let left_convexity = hull.exterior().euclidean_distance(&left_point);
-    let right_convexity = hull.exterior().euclidean_distance(&right_point);
+//     let left_convexity = hull.exterior().euclidean_distance(&left_point);
+//     let right_convexity = hull.exterior().euclidean_distance(&right_point);
 
-    if right_convexity < left_convexity {
+//     if right_convexity < left_convexity {
+//         (scaled_left.clone(), scaled_right.clone())
+//     } else {
+//         (scaled_right.clone(), scaled_left.clone())
+//     }
+// }
+
+
+pub fn tail_head_distinct(
+    mask: &GrayImage,
+    scaled_left: &Array1<f64>,
+    scaled_right: &Array1<f64>,
+    ab_perp: &Vector2<f64>,
+) -> (Array1<f64>, Array1<f64>) {
+    let ab_mid = Vector2::new(
+        (scaled_left[0] + scaled_right[0]) / 2.0,
+        (scaled_left[1] + scaled_right[1]) / 2.0,
+    );
+
+    let mut left_half = Vec::new();
+    let mut right_half = Vec::new();
+
+    for (x, y, pixel) in mask.enumerate_pixels() {
+        if pixel[0] == 0 {
+            continue;
+        }
+        let pt = Vector2::new(x as f64, y as f64);
+        let dot = (pt - ab_mid).dot(ab_perp);
+
+        let coord = Coord { x: pt.x, y: pt.y };
+        if dot > 0.0 {
+            right_half.push(coord);
+        } else {
+            left_half.push(coord);
+        }
+    }
+
+    fn convexity_loss(coords: &[Coord<f64>]) -> f64 {
+        if coords.len() < 3 {
+            return 0.0; // Not a polygon
+        }
+        let ls = LineString::from(coords.to_vec());
+        let poly = Polygon::new(ls.clone(), vec![]);
+        let hull = poly.convex_hull();
+        hull.unsigned_area() - poly.unsigned_area()
+    }
+
+    let left_loss = convexity_loss(&left_half);
+    let right_loss = convexity_loss(&right_half);
+
+    if left_loss > right_loss {
         (scaled_left.clone(), scaled_right.clone())
     } else {
         (scaled_right.clone(), scaled_left.clone())
     }
 }
+
+
 
 fn tail_correct(
     poly: &geo::Polygon<f64>,
@@ -460,7 +527,14 @@ mod tests {
     #[test]
 
     fn test_fish9() {
-        println!("fish8");
+        println!("fish9");
+        let mut rust_img = image::ImageReader::open("./data/fish9.jpeg").unwrap().decode().unwrap().to_luma8();
+        let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
+        rust_img.save("./data/fish9_out.png").unwrap();
+    }
+    #[test]
+    fn test_fish10() {
+        println!("seg");
         let mut rust_img = image::ImageReader::open("./data/test1_seg.jpeg").unwrap().decode().unwrap().to_luma8();
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
         rust_img.save("./data/test1_out.png").unwrap();
