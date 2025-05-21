@@ -489,7 +489,7 @@ mod tests {
         #[test]
     fn inference1() {
             
-        let input_path = "./data/test1.jpeg";
+        let input_path = "./data/test2.jpeg";
         let output_path = "./data/test1_seg.jpeg";
 
         let img = image::ImageReader::open(input_path).unwrap().decode().unwrap().to_rgb8();
