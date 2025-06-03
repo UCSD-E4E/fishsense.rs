@@ -7,7 +7,6 @@ with open('./data/cleaned_data.json') as f:
     annotations_list = json.load(f)
     annotations = {str(entry["id"]): entry for entry in annotations_list}
 
-# Path to segmented images
 seg_path = './data/segmented'
 
 # # Helper to check if a point is inside the fish mask

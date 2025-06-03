@@ -1,22 +1,31 @@
-use geo::{EuclideanDistance, Line, CoordsIter, Point, Polygon, LineString, Area, Coord};
+use geo::{EuclideanDistance,ConvexHull, Line, CoordsIter, Point, Polygon};
 
-use geo::algorithm::{ConvexHull, Distance, BoundingRect};
-use imageproc::contours::find_contours_with_threshold;
-use imageproc::point::Point as ImgPoint;
-use ndarray::linalg::Dot;
+// use geo::algorithm::{ConvexHull, Distance, BoundingRect};
+// use imageproc::contours::find_contours_with_threshold;
+// use imageproc::point::Point as ImgPoint;
+// use ndarray::linalg::Dot;
 
 use ndarray::{Array1, ArrayBase, Dim, OwnedRepr};
 use ndarray::prelude::*;
 
-use std::{cmp::Ordering, fmt::Display};
-use faer::Mat;
-use num::Complex;
+use std::{cmp::Ordering, error::Error, fmt::Display};
+// use faer::Mat;
+// use num::Complex;
 use image::{imageops::FilterType, GrayImage, ImageBuffer, Luma, DynamicImage};
 use nalgebra::{DMatrix, Matrix2, Vector2};
 use ndarray_stats::{errors::EmptyInput, CorrelationExt};
+use anyhow::{Result,};
+
+use opencv::{
+    core::{Mat,Scalar, Point as CVPoint},
+    imgproc,
+    prelude::*,
+    types,
+};
+
 
 // const TARGET_PIXELS: f64 = 30000.0;
-const TARGET_PIXELS: f64 = 25000.0;
+const TARGET_PIXELS: f64 = 35000.0;
 
 #[derive(Debug)]
 pub enum HeadTailError {
@@ -24,6 +33,8 @@ pub enum HeadTailError {
     MaxError,
     COVError(EmptyInput),
     OOBError,
+    PolygonError,
+    
 }
 
 impl Display for HeadTailError {
@@ -36,12 +47,32 @@ impl Display for HeadTailError {
                 f,
                 "Index is out of bounds after argmin/argmax calculation to find coordinate"
             ),
+            HeadTailError::PolygonError => write!(f, "Polygon did not extract, lower target pixels"),
+        }
+    }
+}
+impl Error for HeadTailError {
+    // Optionally, you can override `source` to return inner errors
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            HeadTailError::COVError(e) => Some(e),
+            _ => None,
         }
     }
 }
 
-// draw contours
+impl From<anyhow::Error> for HeadTailError {
+    fn from(_: anyhow::Error) -> Self {
+        HeadTailError::PolygonError
+    }
+}
+
+
+// draw contours with imageproc (removed dependancy)
 // smoothing?
+// better error handling
+// extend custom libraries and remove redundant computations
+// remove outdated dependancies
 
 // optional: use original python head tail distinct process with polygon differences
 // optional: work with concave tails and ensure head vs tail distinguish works
@@ -160,10 +191,10 @@ impl FishHeadTailDetector {
         let left_coord = array![new_x[arg_min] + x_min, new_y[arg_min] + y_min];
         let right_coord = array![new_x[arg_max] + x_min, new_y[arg_max] + y_min];
 
-        draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([200u8]));
-        draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([200u8]));
-
         let cropped_img = image::imageops::crop_imm(img, x_min as u32, y_min as u32, (x_max - x_min) as u32, (y_max - y_min) as u32).to_image();
+
+        draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([190u8]));
+        draw_dot(img, right_coord[0] as i32, right_coord[1] as i32, 10, Luma([190u8]));
 
         let (width, height) = cropped_img.dimensions();
         let total_pixels = (width as f64) * (height as f64);
@@ -186,54 +217,80 @@ impl FishHeadTailDetector {
         let mut tail_coord = array![0.0 as f64, 0.0 as f64];
         let mut head_coord = array![0.0 as f64, 0.0 as f64];
         // get polygon
-        if let Some(poly) = extract_polygon(&cropped_img) {
-            let hull = poly.convex_hull();
-            let ab = Vector2::new(
-                scaled_right[0] - scaled_left[0],
-                scaled_right[1] - scaled_left[1],
-            );
-            let ab_perp = Vector2::new(-ab.y, ab.x);
+        match extract_polygon(&cropped_img)? {
+            Some(poly) => {
+
+                let hull = poly.convex_hull();
+                // draw_convex_hull_points(
+                //     img,
+                //     &hull,
+                //     x_min  as i32,
+                //     y_min  as i32,
+                //     scale,
+                //     10, 
+                //     Luma([200u8])
+                //     );
+
+                // distinguish head and tail
+                (tail_coord, head_coord) = tail_head_distinct(&hull, &scaled_left, &scaled_right);
+
+                // ab for head correct
+                let ab = Vector2::new(
+                    head_coord[0] - tail_coord[0],
+                    head_coord[1] - tail_coord[1],
+                );
+                let ab_perp = Vector2::new(-ab.y, ab.x);
+
+                let search_radius = ab.norm()*0.09;
+            
+                // draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, ((1.0/scale)*search_radius) as i32, Luma([50u8]));
+                // draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([190u8]));
 
 
-            // distinguish head and tail
-            (tail_coord, head_coord) = tail_head_distinct(&cropped_img, &scaled_left, &scaled_right, &ab_perp);
+                // let midpoint = array![
+                // (((tail_coord[0] + head_coord[0]) /scale) + 2.0*x_min as f64)/ 2.0,
+                // (((tail_coord[1] + head_coord[1]) /scale) + 2.0*y_min as f64 )/ 2.0
+                // ];
+                // draw_dot(img, midpoint[0].round() as i32, midpoint[1].round() as i32, 10, Luma([180u8]));
 
-            // ab for head correct
-            let ab = Vector2::new(
-                head_coord[0] - tail_coord[0],
-                head_coord[1] - tail_coord[1],
-            );
-            let ab_perp = Vector2::new(-ab.y, ab.x);
+                draw_perpendicular_line(
+                    img,
+                    &head_coord,
+                    &ab_perp,
+                    100.0,           // length of the line in pixels
+                    0.5,             // spacing between dots
+                    2,               // dot radius
+                    Luma([150u8]),   // color (gray tone)
+                    x_min as i32,
+                    y_min as i32,
+                    scale,
+                );
 
-            let search_radius = ab.norm()*0.09;
+                // correct the tail coord
+                if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
 
-            // let midpoint = array![
-            // (((tail_coord[0] + head_coord[0]) /scale) + 2.0*x_min as f64)/ 2.0,
-            // (((tail_coord[1] + head_coord[1]) /scale) + 2.0*y_min as f64 )/ 2.0
-            // ];
-            // draw_dot(img, midpoint[0].round() as i32, midpoint[1].round() as i32, 10, Luma([180u8]));
+                    tail_coord = array![
+                        ((concave_point.x() /scale) + x_min as f64),
+                        ((concave_point.y() /scale) + y_min as f64)
+                    ];
 
-            // correct the tail coord
-            if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
+                    draw_dot(img, tail_coord[0] as i32, tail_coord[1] as i32, 10, Luma([100u8]));
+                };
 
-                tail_coord = array![
-                    ((concave_point.x() /scale) + x_min as f64),
-                    ((concave_point.y() /scale) + y_min as f64)
-                ];
+                if let Some(correct_head) = head_correct(&hull, &head_coord, &ab, &ab_perp) {
+                    head_coord = array![
+                        (correct_head.x() / scale) + x_min as f64,
+                        (correct_head.y() / scale) + y_min as f64
+                    ];
+                    draw_dot(img, head_coord[0] as i32, head_coord[1] as i32, 3, Luma([50u8]));
 
-                draw_dot(img, tail_coord[0] as i32, tail_coord[1] as i32, 10, Luma([100u8]));
-            };
+                };
+            }
+            None => {
+                return Err(HeadTailError::PolygonError);
+            }
 
-            if let Some(correct_head) = head_correct(&hull, &head_coord, &ab, &ab_perp) {
-                head_coord = array![
-                    (correct_head.x() / scale) + x_min as f64,
-                    (correct_head.y() / scale) + y_min as f64
-                ];
-                draw_dot(img, head_coord[0] as i32, head_coord[1] as i32, 10, Luma([50u8]));
-
-            };
-
-        };
+        }
 
         Ok((
             array![(tail_coord[0]).round() as usize, (tail_coord[1]).round() as usize],
@@ -244,90 +301,89 @@ impl FishHeadTailDetector {
     }
 }
 
-fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<f64>> {
+// fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<f64>> {
 
-    let contours = find_contours_with_threshold::<u8>(&img, 125);
-    if contours.is_empty() {
-        return None;
-    }
-
-    let largest_contour = contours
-        .into_iter()
-        .max_by_key(|c| c.points.len())?;
-    let exterior: Vec<(f64, f64)> = largest_contour
-        .points
-        .iter()
-        .map(|point: &ImgPoint<u8>| (point.x as f64, point.y as f64))
-        .collect();
-
-    Some(Polygon::new(exterior.into(), vec![]))
-}
-
-// fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scaled_right: &Array1<f64>)-> (Array1<f64>, Array1<f64>){
-
-//     let left_point = Point::new(scaled_left[0], scaled_left[1]);
-//     let right_point = Point::new(scaled_right[0], scaled_right[1]);
-
-//     let left_convexity = hull.exterior().euclidean_distance(&left_point);
-//     let right_convexity = hull.exterior().euclidean_distance(&right_point);
-
-//     if right_convexity < left_convexity {
-//         (scaled_left.clone(), scaled_right.clone())
-//     } else {
-//         (scaled_right.clone(), scaled_left.clone())
+//     let contours = find_contours_with_threshold::<u8>(&img, 125);
+//     if contours.is_empty() {
+//         return None;
 //     }
+
+//     let largest_contour = contours
+//         .into_iter()
+//         .max_by_key(|c| c.points.len())?;
+//     let exterior: Vec<(f64, f64)> = largest_contour
+//         .points
+//         .iter()
+//         .map(|point: &ImgPoint<u8>| (point.x as f64, point.y as f64))
+//         .collect();
+
+//     Some(Polygon::new(exterior.into(), vec![]))
 // }
 
+pub fn extract_polygon(
+    img: &ImageBuffer<Luma<u8>, Vec<u8>>,
+) -> anyhow::Result<Option<Polygon<f64>>> {
+    let (width, height) = (img.width() as i32, img.height() as i32);
 
-pub fn tail_head_distinct(
-    mask: &GrayImage,
-    scaled_left: &Array1<f64>,
-    scaled_right: &Array1<f64>,
-    ab_perp: &Vector2<f64>,
-) -> (Array1<f64>, Array1<f64>) {
-    let ab_mid = Vector2::new(
-        (scaled_left[0] + scaled_right[0]) / 2.0,
-        (scaled_left[1] + scaled_right[1]) / 2.0,
-    );
+    let raw_slice = img.as_raw();
 
-    let mut left_half = Vec::new();
-    let mut right_half = Vec::new();
+    let mat_from_slice = Mat::from_slice(raw_slice)?;
 
-    for (x, y, pixel) in mask.enumerate_pixels() {
-        if pixel[0] == 0 {
-            continue;
-        }
-        let pt = Vector2::new(x as f64, y as f64);
-        let dot = (pt - ab_mid).dot(ab_perp);
+    let mat = mat_from_slice.reshape(1, height)?;
 
-        let coord = Coord { x: pt.x, y: pt.y };
-        if dot > 0.0 {
-            right_half.push(coord);
-        } else {
-            left_half.push(coord);
+    let mut thresh = Mat::default();
+    imgproc::threshold(&mat, &mut thresh, 125.0, 255.0, imgproc::THRESH_BINARY)?;
+
+    let mut contours = types::VectorOfVectorOfPoint::new();
+    imgproc::find_contours(
+        &thresh,
+        &mut contours,
+        imgproc::RETR_EXTERNAL,
+        imgproc::CHAIN_APPROX_SIMPLE,
+        CVPoint::new(0, 0),
+    )?;
+
+    if contours.len() == 0 {
+        return Ok(None);
+    }
+
+    let mut max_area = 0.0;
+    let mut max_contour = None;
+    for contour in contours.iter() {
+        let area = imgproc::contour_area(&contour, false)?;
+        if area > max_area {
+            max_area = area;
+            max_contour = Some(contour.clone());
         }
     }
 
-    fn convexity_loss(coords: &[Coord<f64>]) -> f64 {
-        if coords.len() < 3 {
-            return 0.0; // Not a polygon
-        }
-        let ls = LineString::from(coords.to_vec());
-        let poly = Polygon::new(ls.clone(), vec![]);
-        let hull = poly.convex_hull();
-        hull.unsigned_area() - poly.unsigned_area()
-    }
+    let contour = match max_contour {
+        Some(c) => c,
+        None => return Ok(None),
+    };
 
-    let left_loss = convexity_loss(&left_half);
-    let right_loss = convexity_loss(&right_half);
+    let exterior: Vec<_> = contour
+        .iter()
+        .map(|pt| (pt.x as f64, pt.y as f64))
+        .collect();
 
-    if left_loss > right_loss {
+    Ok(Some(Polygon::new(exterior.into(), vec![])))
+}
+
+fn tail_head_distinct(hull: &geo::Polygon<f64>, scaled_left: &Array1<f64>, scaled_right: &Array1<f64>)-> (Array1<f64>, Array1<f64>){
+
+    let left_point = Point::new(scaled_left[0], scaled_left[1]);
+    let right_point = Point::new(scaled_right[0], scaled_right[1]);
+
+    let left_convexity = hull.exterior().euclidean_distance(&left_point);
+    let right_convexity = hull.exterior().euclidean_distance(&right_point);
+
+    if right_convexity < left_convexity {
         (scaled_left.clone(), scaled_right.clone())
     } else {
         (scaled_right.clone(), scaled_left.clone())
     }
 }
-
 
 
 fn tail_correct(
@@ -552,5 +608,52 @@ fn draw_dot(image: &mut GrayImage, x: i32, y: i32, radius: i32, color: Luma<u8>)
                 }
             }
         }
+    }
+}
+
+fn draw_convex_hull_points(
+    img: &mut GrayImage,
+    hull: &Polygon<f64>,
+    x_min: i32,
+    y_min: i32,
+    scale: f64,
+    radius: i32,
+    color: Luma<u8>,
+) {
+    for coord in hull.exterior().coords_iter() {
+        let x = ((coord.x / scale) + x_min as f64).round() as i32;
+        let y = ((coord.y / scale) + y_min as f64).round() as i32;
+        draw_dot(img, x, y, radius, color);
+    }
+}
+
+fn draw_perpendicular_line(
+    img: &mut GrayImage,
+    center: &Array1<f64>,
+    direction: &Vector2<f64>,
+    length: f64,
+    step: f64,
+    radius: i32,
+    color: Luma<u8>,
+    x_min: i32,
+    y_min: i32,
+    scale: f64,
+) {
+    let dir_norm = direction.normalize();
+    let half_len = length / 2.0;
+
+    let num_steps = (length / step).ceil() as i32;
+
+    for i in -num_steps..=num_steps {
+        let offset = i as f64 * step;
+        let point = array![
+            center[0] + dir_norm.x * offset,
+            center[1] + dir_norm.y * offset
+        ];
+
+        let x = ((point[0] / scale) + x_min as f64).round() as i32;
+        let y = ((point[1] / scale) + y_min as f64).round() as i32;
+
+        draw_dot(img, x, y, radius, color);
     }
 }
