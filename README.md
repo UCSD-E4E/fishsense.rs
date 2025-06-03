@@ -19,7 +19,6 @@
 
 - `Cargo.toml`: Rust manifest. Key crates: `ort`, `opencv`, `image`, `ndarray`, `faer`, `serde`, `anyhow`, `reqwest`.
 - `rust-toolchain.toml`: Pins the Rust version.
-- `README.md`: You're reading it.
 
 ### `src/`
 
@@ -36,20 +35,20 @@
 - `mod.rs`: Declares and re-exports fish analysis modules.
 - `fish_classifier.rs`: Loads ONNX model + embedding DB; runs cosine similarity to identify species.
 - `fish_segmentation.rs`: Runs ONNX instance segmentation model; outputs binary masks and contours.
-- `autolabel.rs`: Detects head/tail points using PCA and convex hull analysis.
-- `fish_length_calculator.rs`: Snaps head/tail to best depth values; computes 3D length.
+- `autolabel.rs`: Detects head/tail points using convex hull analysis.
+- `fish_length_calculator.rs`: Snaps head/tail to best depth values; computes length.
 
 ---
 
 ## `data/` Directory
 
-Test files: sample fish images, segmentation masks, `.npz` arrays, etc. Used in module tests. Output images may also be saved here.
+Test files: sample fish images, segmentation masks, `.npz` arrays, etc. Used in module tests. 
 
 ---
 
 ## `target/` Directory
 
-Build artifacts—ignored by Git. Created by Cargo during compilation.
+Created by Cargo during compilation.
 
 ---
 
@@ -68,3 +67,14 @@ git clone <repo-url>
 cd fishsense
 cargo build             # dev build
 cargo build --release   # optimized build
+
+
+```
+
+## More Details
+https://anushri1206.github.io/FishSenseDoc/
+
+## Acknowledgment
+
+This documentation was partially drafted and edited with the assistance of AI-based tools, including [OpenAI ChatGPT](https://openai.com/chatgpt), to enhance clarity, consistency, and formatting.
+
