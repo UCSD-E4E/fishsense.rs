@@ -1,6 +1,6 @@
 # FishSense
 
-**FishSense** is a Rust toolkit for analyzing fish images using machine learning and image processing. It classifies species, segments fish from backgrounds, detects head/tail points, and estimates 3D length using depth data.
+**FishSense** is a Rust toolkit for analyzing fish images using machine learning and image processing. It classifies species, segments fish from backgrounds, detects head/tail points, and estimates fish length using depth data.
 
 ---
 
@@ -8,7 +8,7 @@
 
 - **Species Classification**: Identifies fish species via ONNX models.
 - **Segmentation**: Extracts precise fish masks from images.
-- **Head/Tail Detection**: Locates anatomical points using geometry and PCA.
+- **Head/Tail Detection**: Locates points using fish geometry and PCA.
 - **3D Length Estimation**: Computes real-world fish length using image coordinates, depth maps, and camera intrinsics.
 
 ---
