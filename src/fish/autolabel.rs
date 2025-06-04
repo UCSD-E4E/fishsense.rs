@@ -87,7 +87,7 @@ impl FishHeadTailDetector {
         )
         .unwrap();
 
-        // Extract non-zero pixel indices
+        // non-zero pixel idxs
         let nonzero: Vec<(usize, usize)> = mask
             .indexed_iter()
             .filter_map(|((y, x), &val)| if val != 0 { Some((y, x)) } else { None })
@@ -100,7 +100,7 @@ impl FishHeadTailDetector {
         let y_coords: Array1<usize> = nonzero.iter().map(|&(y, _)| y).collect();
         let x_coords: Array1<usize> = nonzero.iter().map(|&(_, x)| x).collect();
 
-        // Compute bounding box for cropping
+        // Calc bounding box for cropping
         let y_min = min(&y_coords)?;
         let y_max = max(&y_coords)?;
         let x_min = min(&x_coords)?;
@@ -108,7 +108,7 @@ impl FishHeadTailDetector {
 
         let mask_crop = mask.slice(s![y_min..=y_max, x_min..=x_max]);
 
-        // Recalculate non-zero indices within the cropped mask
+        // Non-zero idxs in cropped mask
         let cropped_nonzero: Vec<(usize, usize)> = mask_crop
             .indexed_iter()
             .filter_map(|((y, x), &val)| if val != 0 { Some((y, x)) } else { None })
@@ -118,7 +118,7 @@ impl FishHeadTailDetector {
             return Err(HeadTailError::MinError);
         }
 
-        // Center coordinates
+        // center coords
         let cropped_y: Vec<f64> = cropped_nonzero.iter().map(|&(y, _)| y as f64).collect();
         let cropped_x: Vec<f64> = cropped_nonzero.iter().map(|&(_, x)| x as f64).collect();
 
@@ -221,15 +221,6 @@ impl FishHeadTailDetector {
             Some(poly) => {
 
                 let hull = poly.convex_hull();
-                // draw_convex_hull_points(
-                //     img,
-                //     &hull,
-                //     x_min  as i32,
-                //     y_min  as i32,
-                //     scale,
-                //     10, 
-                //     Luma([200u8])
-                //     );
 
                 // distinguish head and tail
                 (tail_coord, head_coord) = tail_head_distinct(&hull, &scaled_left, &scaled_right);
@@ -242,29 +233,6 @@ impl FishHeadTailDetector {
                 let ab_perp = Vector2::new(-ab.y, ab.x);
 
                 let search_radius = ab.norm()*0.09;
-            
-                // draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, ((1.0/scale)*search_radius) as i32, Luma([50u8]));
-                // draw_dot(img, left_coord[0] as i32, left_coord[1] as i32, 10, Luma([190u8]));
-
-
-                // let midpoint = array![
-                // (((tail_coord[0] + head_coord[0]) /scale) + 2.0*x_min as f64)/ 2.0,
-                // (((tail_coord[1] + head_coord[1]) /scale) + 2.0*y_min as f64 )/ 2.0
-                // ];
-                // draw_dot(img, midpoint[0].round() as i32, midpoint[1].round() as i32, 10, Luma([180u8]));
-
-                draw_perpendicular_line(
-                    img,
-                    &head_coord,
-                    &ab_perp,
-                    100.0,           // length of the line in pixels
-                    0.5,             // spacing between dots
-                    2,               // dot radius
-                    Luma([150u8]),   // color (gray tone)
-                    x_min as i32,
-                    y_min as i32,
-                    scale,
-                );
 
                 // correct the tail coord
                 if let Some(concave_point) = tail_correct(&poly, &hull, &tail_coord, search_radius) {
@@ -276,6 +244,7 @@ impl FishHeadTailDetector {
 
                     draw_dot(img, tail_coord[0] as i32, tail_coord[1] as i32, 10, Luma([100u8]));
                 };
+                // correct the head coord
 
                 if let Some(correct_head) = head_correct(&hull, &head_coord, &ab, &ab_perp) {
                     head_coord = array![
@@ -301,24 +270,6 @@ impl FishHeadTailDetector {
     }
 }
 
-// fn extract_polygon(img: &ImageBuffer<Luma<u8>, Vec<u8>>) -> Option<geo::Polygon<f64>> {
-
-//     let contours = find_contours_with_threshold::<u8>(&img, 125);
-//     if contours.is_empty() {
-//         return None;
-//     }
-
-//     let largest_contour = contours
-//         .into_iter()
-//         .max_by_key(|c| c.points.len())?;
-//     let exterior: Vec<(f64, f64)> = largest_contour
-//         .points
-//         .iter()
-//         .map(|point: &ImgPoint<u8>| (point.x as f64, point.y as f64))
-//         .collect();
-
-//     Some(Polygon::new(exterior.into(), vec![]))
-// }
 
 pub fn extract_polygon(
     img: &ImageBuffer<Luma<u8>, Vec<u8>>,
@@ -546,9 +497,15 @@ mod tests {
     #[test]
     fn test_fish4() {
         println!("fish4");
+        use std::time::Instant;
+
+    let start = Instant::now();
+
         let mut rust_img = image::ImageReader::open("./data/fish4.png").unwrap().decode().unwrap().to_luma8();
         let (head, tail) = FishHeadTailDetector::find_head_tail(&mut rust_img).unwrap();
-        rust_img.save("./data/fish4_out.png").unwrap();
+        // rust_img.save("./data/fish4_out.png").unwrap();
+                        let duration = start.elapsed(); 
+    println!("Test completed in: {:?}", duration);
     }
     #[test]
     fn test_fish5() {

@@ -4,7 +4,7 @@ import math
 WIDTH = 4014
 HEIGHT = 3016
 
-with open("./data/results.json", "r") as f:
+with open("./data/badoutputs/badresults.json", "r") as f:
     results_data = json.load(f)
 
 with open("./data/cleaned_data.json", "r") as f:
@@ -49,5 +49,5 @@ for entry in results_data:
         "normalized_pixel_diff": normalized_diff
     })
 
-with open("./data/diff_output.json", "w") as f:
+with open("./data/badoutputs/diff_output.json", "w") as f:
     json.dump(output, f, indent=2)
