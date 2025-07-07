@@ -30,8 +30,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Run classifier
-    let classifier = FishClassifier::new()?;
-    let predictions = classifier.classify(array)?;
+    let classifier = FishClassifier::new().await()?;
+    let predictions = classifier.classify(array).await()?;
 
     // Print results
     println!("\n Fish Classification Results:");
