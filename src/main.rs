@@ -1,10 +1,11 @@
-use fishsense:: fish :: FishClassifier;
+use fishsense::fish::FishClassifier;
 use image::GenericImageView;
 use ndarray::Array3;
 use std::env;
 use std::path::Path;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Get image path from command-line args
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
