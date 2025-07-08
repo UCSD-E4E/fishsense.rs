@@ -1,0 +1,11 @@
+[package]
+name = "fishsense_main"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fish_logic = { path = "../fish_logic" }
+ndarray.workspace = true
+image.workspace = true
+anyhow.workspace = true
+
