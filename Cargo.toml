@@ -12,7 +12,7 @@ ndarray = "0.15.6"
 ndarray-npy = "0.8.1"
 opencv = { version = "0.91.3", features = ["clang-runtime"] }
 ort = { git = "https://github.com/pykeio/ort.git", version = "2.0.0-rc.2", tag = "v2.0.0-rc.2" }
-reqwest = { version = "0.12.4", features = ["blocking"] }
+reqwest = { version = "0.12.4", features = ["blocking", "json"] }
 ndarray-stats = { git = "https://github.com/ccrutchf/ndarray-stats.git", version = "0.5.1" }
 faer = "0.18.2"
 num = "0.4.3"
@@ -27,5 +27,13 @@ imageproc = "0.25"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
+lancedb = "0.21.0"
+tokio = { version = "1.38.0", features = ["full"] }
+futures = "0.3"
+arrow-array = "55.0"
+arrow-schema = "55.0"
+
+
 
 [dev-dependencies]
+tokio-test = "0.4"
