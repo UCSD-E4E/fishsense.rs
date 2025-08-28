@@ -1,14 +1,17 @@
 {
-	"image": "ghcr.io/ucsd-e4e/fishsense:cuda",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	// "image": "ghcr.io/ucsd-e4e/fishsense:cuda",
 	"runArgs": [
 		"--gpus=all",
 		"--runtime=nvidia",
-		"-e", "NVIDIA_DRIVER_CAPABILITIES=all"
+		"-e",
+		"NVIDIA_DRIVER_CAPABILITIES=all"
 	],
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"rust-lang.rust-analyzer",
 				"vadimcn.vscode-lldb",
 				"eamodio.gitlens",
 				"VisualStudioExptTeam.vscodeintellicode",

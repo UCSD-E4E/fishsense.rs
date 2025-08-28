@@ -1,0 +1,32 @@
+[package]
+name = "fishsense_main"
+version = "0.1.0"
+edition = "2024"
+default-run = "fishsense_main"
+
+[dependencies]
+fish_logic = { path = "../fish_logic" }
+ndarray.workspace = true
+image.workspace = true
+anyhow.workspace = true
+tokio = { version = "1.46.1", features = ["full"] }
+rand = "0.8"
+arrow = "54.0"
+futures = "0.3"
+
+[[bin]]
+name = "fishsense_main"
+path = "src/main.rs"
+
+[[bin]]
+name = "ingest_data"
+path = "src/bin/ingest_data.rs"
+# NOTE: Data ingestion is currently disabled
+
+[[bin]]
+name = "test_retrieval"
+path = "src/bin/test_retrieval.rs"
+
+[[bin]]
+name = "test_image_retrieval"
+path = "src/bin/test_image_retrieval.rs"

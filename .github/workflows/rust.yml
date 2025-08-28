@@ -16,9 +16,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Setup
-      run: |
-        sudo apt-get -y install libopencv-dev clang libclang-dev
-        pip install git+https://github.com/UCSD-E4E/synology-download.git --break-system-packages
+    - run: |
+      sudo apt-get update
+      sudo apt-get -y install libopencv-dev clang libclang-dev
+      pip install git+https://github.com/UCSD-E4E/synology-download.git --break-system-packages
+
     - name: Download Test data
       env:
         NAS_CREDS: ${{ secrets.NAS_CREDS }}
